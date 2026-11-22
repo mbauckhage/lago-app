@@ -1,0 +1,335 @@
+import Fastify from 'fastify';
+import serveStatic from '@fastify/static';
+import pg from 'pg';
+import { DateTime } from 'luxon';
+import { createHash, randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
+import { promisify } from 'node:util';
+import { existsSync, readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+
+if (!process.env.DATABASE_URL) throw new Error('Set DATABASE_URL to your PostgreSQL connection URL.');
+const db = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+const app = Fastify({ bodyLimit: 1_500_000, logger: { serializers: {
+  req: request => ({ method: request.method, url: request.url.startsWith('/calendar/') ? '/calendar/[private]' : request.url })
+} } });
+const derive = promisify(scrypt);
+const token = () => randomBytes(32).toString('hex');
+const hash = value => createHash('sha256').update(value).digest('hex');
+const groups = ['Lago Nostre', 'Lago Plus'];
+const statuses = ['Going', 'Maybe', 'Declined'];
+const zone = 'Europe/Zurich';
+const clean = value => typeof value === 'string' ? value.trim() : '';
+const error = (statusCode, message) => Object.assign(new Error(message), { statusCode });
+const invalid = message => error(400, message);
+const missing = () => error(404, 'Event unavailable.');
+const validId = value => Number.isInteger(value) && value > 0 && value <= 2147483647;
+
+app.addHook('onClose', () => db.end());
+app.addHook('onRequest', async (req, reply) => {
+  if (req.url.startsWith('/api/') || req.url.startsWith('/calendar/')) reply.header('Cache-Control', 'no-store');
+  if (['POST', 'PATCH', 'PUT', 'DELETE'].includes(req.method) && req.headers['sec-fetch-site'] === 'cross-site') {
+    throw error(403, 'Open Lago to make this change.');
+  }
+});
+app.setErrorHandler((err, req, reply) => {
+  if (err.statusCode && err.statusCode < 500) return reply.code(err.statusCode).send({ message: err.message });
+  req.log.error(err);
+  return reply.code(500).send({ message: 'Something went wrong. Try again.' });
+});
+
+const adminEmail = clean(process.env.LAGO_ADMIN_EMAIL).toLowerCase();
+const adminPassword = process.env.LAGO_ADMIN_PASSWORD;
+if (Boolean(adminEmail) !== Boolean(adminPassword) || (adminPassword && adminPassword.length < 12)) {
+  throw new Error('Set both administrator credentials and use a password of at least 12 characters.');
+}
+await db.query(readFileSync(new URL('./schema.sql', import.meta.url), 'utf8'));
+
+async function passwordRecord(password) {
+  const salt = token();
+  return salt + ':' + (await derive(password, salt, 64)).toString('hex');
+}
+
+if (adminEmail) {
+  const { rowCount } = await db.query(
+    'SELECT 1 FROM members WHERE email = $1 AND admin', [adminEmail]
+  );
+  if (!rowCount) await db.query(
+    'INSERT INTO members (email,password,name,approved,admin,calendar_token) VALUES ($1,$2,$3,true,true,$4)',
+    [adminEmail, await passwordRecord(adminPassword), clean(process.env.LAGO_ADMIN_NAME) || 'Lago Admin', token()]
+  );
+}
+
+function sessionCookie(value, seconds) {
+  const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+  return `lago_session=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${seconds}${secure}`;
+}
+
+function sessionToken(req) {
+  return req.headers.cookie?.match(/(?:^|;\s*)lago_session=([a-f0-9]{64})(?:;|$)/)?.[1];
+}
+
+async function signIn(reply, id) {
+  const session = token();
+  const seconds = 60 * 60 * 24 * 30;
+  await db.query('INSERT INTO sessions VALUES ($1,$2,$3)', [hash(session), id, new Date(Date.now() + seconds * 1000)]);
+  reply.header('Set-Cookie', sessionCookie(session, seconds));
+}
+
+async function member(req, access = 'approved') {
+  const session = sessionToken(req);
+  if (!session) throw error(401, 'Sign in to continue.');
+  const { rows: [user] } = await db.query(
+    'SELECT m.* FROM sessions s JOIN members m ON m.id=s.member_id WHERE s.token=$1 AND s.expires>now()',
+    [hash(session)]
+  );
+  if (!user) throw error(401, 'Sign in to continue.');
+  if (access !== 'signed-in' && !user.approved) throw error(403, 'Your account is awaiting approval.');
+  if (access === 'admin' && !user.admin) throw error(403, 'Administrator access is required.');
+  return user;
+}
+
+function account(user) {
+  const { id, name, approved, admin, photo, email_updates, push_updates, calendar_token } = user;
+  return { id, name, approved, admin, photo, email_updates, push_updates, calendar_token: approved ? calendar_token : null };
+}
+
+app.post('/api/register', async (req, reply) => {
+  const { email, password, name } = req.body ?? {};
+  const address = clean(email).toLowerCase();
+  const displayName = clean(name);
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address) || address.length > 254) throw invalid('Enter a valid email address.');
+  if (typeof password !== 'string' || password.length < 12 || password.length > 128) throw invalid('Use a password with 12 to 128 characters.');
+  if (!displayName || displayName.length > 35) throw invalid('Enter a display name up to 35 characters.');
+  const { rows: [user] } = await db.query(
+    'INSERT INTO members (email,password,name,calendar_token) VALUES ($1,$2,$3,$4) ON CONFLICT (email) DO NOTHING RETURNING *',
+    [address, await passwordRecord(password), displayName, token()]
+  );
+  if (!user) throw error(409, 'An account already exists for this email. Sign in.');
+  await signIn(reply, user.id);
+  return reply.code(201).send(account(user));
+});
+
+app.post('/api/login', async (req, reply) => {
+  const { email, password } = req.body ?? {};
+  if (typeof password !== 'string' || password.length > 128) throw invalid('Enter your email and password.');
+  const { rows: [user] } = await db.query('SELECT * FROM members WHERE email=$1', [clean(email).toLowerCase()]);
+  const [salt, expected] = (user?.password ?? `${'0'.repeat(64)}:${'0'.repeat(128)}`).split(':');
+  const actual = await derive(password, salt, 64);
+  if (!user || !timingSafeEqual(actual, Buffer.from(expected, 'hex'))) throw error(401, 'Email or password is incorrect.');
+  await signIn(reply, user.id);
+  return account(user);
+});
+
+app.post('/api/logout', async (req, reply) => {
+  const session = sessionToken(req);
+  if (session) await db.query('DELETE FROM sessions WHERE token=$1', [hash(session)]);
+  return reply.header('Set-Cookie', sessionCookie('', 0)).code(204).send();
+});
+
+app.get('/api/health', async (req, reply) => {
+  try {
+    await db.query('SELECT 1');
+    return { status: 'ok' };
+  } catch (err) {
+    req.log.error(err);
+    return reply.code(503).send({ status: 'unavailable' });
+  }
+});
+
+app.get('/api/me', async req => account(await member(req, 'signed-in')));
+
+app.patch('/api/me', async req => {
+  const user = await member(req);
+  const { name, photo, email_updates, push_updates } = req.body ?? {};
+  const displayName = clean(name);
+  if (!displayName || displayName.length > 35) throw invalid('Enter a display name up to 35 characters.');
+  validatePhoto(photo);
+  if (typeof email_updates !== 'boolean' || typeof push_updates !== 'boolean') throw invalid('Choose your notification preferences.');
+  const { rows: [updated] } = await db.query(
+    'UPDATE members SET name=$1,photo=coalesce($2,photo),email_updates=$3,push_updates=$4 WHERE id=$5 RETURNING *',
+    [displayName, photo, email_updates, push_updates, user.id]
+  );
+  return account(updated);
+});
+
+app.post('/api/me/calendar', async req => {
+  const user = await member(req);
+  const { rows: [updated] } = await db.query('UPDATE members SET calendar_token=$1 WHERE id=$2 RETURNING *', [token(), user.id]);
+  return account(updated);
+});
+
+app.get('/api/members', async req => {
+  await member(req);
+  const { rows } = await db.query('SELECT id,name FROM members WHERE approved ORDER BY name,id');
+  return rows;
+});
+
+app.get('/api/admin/members', async req => {
+  await member(req, 'admin');
+  const { rows } = await db.query(`SELECT m.id,m.name,m.email,m.approved,m.admin,
+    ARRAY(SELECT group_name FROM group_members WHERE member_id=m.id ORDER BY group_name) AS groups
+    FROM members m ORDER BY approved,name,id`);
+  return rows;
+});
+
+app.patch('/api/admin/members/:id', async req => {
+  await member(req, 'admin');
+  const id = Number(req.params.id);
+  const { approved, groups: selected } = req.body ?? {};
+  if (!validId(id) || approved !== true || !Array.isArray(selected) || !selected.every(group => groups.includes(group))) {
+    throw invalid('Choose an account and valid groups.');
+  }
+  const client = await db.connect();
+  try {
+    await client.query('BEGIN');
+    const result = await client.query('UPDATE members SET approved=true WHERE id=$1', [id]);
+    if (!result.rowCount) throw error(404, 'Account unavailable.');
+    await client.query('DELETE FROM group_members WHERE member_id=$1', [id]);
+    await client.query('INSERT INTO group_members SELECT unnest($1::text[]), $2', [[...new Set(selected)], id]);
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+  return { saved: true };
+});
+
+app.get('/api/events', async req => {
+  const user = await member(req);
+  const { rows } = await db.query(`
+    SELECT e.*, h.name AS host, h.photo AS host_photo, s.status,
+      (e.host_id=$1) AS mine,
+      (SELECT coalesce(json_agg(json_build_object('id', m.id, 'name', m.name, 'status', r.status)
+        ORDER BY m.name,m.id), '[]'::json)
+        FROM event_guests g JOIN members m ON m.id=g.member_id
+        LEFT JOIN responses r ON r.event_id=g.event_id AND r.member_id=g.member_id
+        WHERE g.event_id=e.id) AS guests
+    FROM events e JOIN members h ON h.id=e.host_id
+    LEFT JOIN responses s ON s.event_id=e.id AND s.member_id=$1
+    WHERE e.host_id=$1 OR EXISTS (SELECT 1 FROM event_guests WHERE event_id=e.id AND member_id=$1)
+    ORDER BY e.id DESC`, [user.id]);
+  return rows.map(({ host_id, people, groups, starts_at, ...event }) => {
+    const start = DateTime.fromJSDate(starts_at, { zone });
+    return {
+      ...event, date: start.toISODate(), time: start.toFormat('HH:mm'),
+      ...(event.mine ? { people, groups } : {})
+    };
+  });
+});
+
+function validatePhoto(photo) {
+  if (photo !== undefined && (typeof photo !== 'string' || photo.length > 1_400_000 ||
+    (photo && !/^data:image\/(?:jpeg|png|webp);base64,[a-z0-9+/]+=*$/i.test(photo)))) {
+    throw invalid('Choose a JPEG, PNG or WebP image under 1 MB.');
+  }
+}
+
+async function eventFields(body, host) {
+  const { title, date, time, place, note, photo, people, groups: selected } = body ?? {};
+  const dateTime = typeof date === 'string' && typeof time === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(date + 'T' + time)
+    ? DateTime.fromISO(date + 'T' + time, { zone }) : null;
+  if (!dateTime?.isValid || dateTime.toISODate() !== date || dateTime.toFormat('HH:mm') !== time) {
+    throw invalid('Enter a valid date and time in Switzerland.');
+  }
+  if (!clean(title) || clean(title).length > 75 || clean(place).length > 80 || clean(note).length > 350) {
+    throw invalid('Enter an event name and keep each field within its character limit.');
+  }
+  if (!Array.isArray(people) || people.length > 500 || !people.every(id => validId(id) && id !== host) ||
+      !Array.isArray(selected) || !selected.every(group => groups.includes(group))) throw invalid('Choose valid invitees.');
+  validatePhoto(photo);
+  const invitees = [...new Set(people)];
+  if (!invitees.length && !selected.length) throw invalid('Choose at least one person or group.');
+  const result = await db.query('SELECT id FROM members WHERE approved AND id=ANY($1::int[])', [invitees]);
+  if (result.rowCount !== invitees.length) throw invalid('An invitee is unavailable. Refresh and try again.');
+  return [clean(title), dateTime.toJSDate(), clean(place), clean(note), invitees, [...new Set(selected)], host, photo ?? null];
+}
+
+app.post('/api/events', async (req, reply) => {
+  const user = await member(req);
+  const { rows: [event] } = await db.query(
+    "INSERT INTO events (title,starts_at,place,note,people,groups,host_id,photo) VALUES ($1,$2,$3,$4,$5,$6,$7,coalesce($8,'')) RETURNING id",
+    await eventFields(req.body, user.id)
+  );
+  return reply.code(201).send(event);
+});
+
+app.patch('/api/events/:id', async req => {
+  const user = await member(req);
+  const id = Number(req.params.id);
+  if (!validId(id)) throw missing();
+  const { rowCount } = await db.query(`UPDATE events SET title=$1,starts_at=$2,place=$3,note=$4,people=$5,groups=$6,photo=coalesce($8,photo),
+    updated_at=clock_timestamp() WHERE host_id=$7 AND id=$9 AND NOT cancelled`, [...await eventFields(req.body, user.id), id]);
+  if (!rowCount) throw missing();
+  return { saved: true };
+});
+
+app.post('/api/events/:id/cancel', async req => {
+  const user = await member(req);
+  const id = Number(req.params.id);
+  if (!validId(id)) throw missing();
+  const { rowCount } = await db.query(
+    'UPDATE events SET cancelled=true,updated_at=clock_timestamp() WHERE id=$1 AND host_id=$2 AND NOT cancelled', [id, user.id]
+  );
+  if (!rowCount) throw missing();
+  return { saved: true };
+});
+
+app.put('/api/events/:id/rsvp', async req => {
+  const user = await member(req);
+  const id = Number(req.params.id);
+  const status = req.body?.status;
+  if (!validId(id)) throw missing();
+  if (!statuses.includes(status)) throw invalid('Choose Going, Maybe or Declined.');
+  const { rowCount } = await db.query(`
+    INSERT INTO responses (event_id,member_id,status)
+    SELECT e.id,$2,$3 FROM events e JOIN event_guests g ON g.event_id=e.id AND g.member_id=$2
+    WHERE e.id=$1 AND NOT e.cancelled FOR UPDATE OF e
+    ON CONFLICT (event_id,member_id) DO UPDATE SET status=excluded.status`, [id, user.id, status]);
+  if (!rowCount) throw missing();
+  return { saved: true };
+});
+
+const calendarDate = date => DateTime.fromJSDate(date, { zone: 'utc' }).toFormat("yyyyMMdd'T'HHmmss'Z'");
+const calendarText = value => value.replace(/\\/g, '\\\\').replace(/\r\n|\r|\n/g, '\\n').replace(/[;,]/g, '\\$&');
+function fold(line) {
+  let result = '';
+  let bytes = 0;
+  for (const char of line) {
+    const size = Buffer.byteLength(char);
+    if (bytes + size > 75) {
+      result += '\r\n ';
+      bytes = 1;
+    }
+    result += char;
+    bytes += size;
+  }
+  return result;
+}
+
+app.get('/calendar/:file', async (req, reply) => {
+  const match = /^([a-f0-9]{64})\.ics$/.exec(req.params.file);
+  if (!match) throw error(404, 'Calendar unavailable.');
+  const { rows: [user] } = await db.query('SELECT id FROM members WHERE approved AND calendar_token=$1', [match[1]]);
+  if (!user) throw error(404, 'Calendar unavailable.');
+  const { rows } = await db.query(`
+    SELECT e.* FROM events e
+    WHERE NOT e.cancelled AND (e.host_id=$1 OR EXISTS (
+      SELECT 1 FROM event_guests g JOIN responses r USING (event_id,member_id)
+      WHERE g.event_id=e.id AND g.member_id=$1 AND r.status IN ('Going','Maybe')
+    )) ORDER BY e.starts_at`, [user.id]);
+  const entries = rows.flatMap(e => [
+    'BEGIN:VEVENT', `UID:${e.id}@lago`, 'DTSTAMP:' + calendarDate(e.updated_at),
+    'DTSTART:' + calendarDate(e.starts_at), 'SUMMARY:' + calendarText(e.title),
+    'LOCATION:' + calendarText(e.place), 'DESCRIPTION:' + calendarText(e.note), 'END:VEVENT'
+  ]);
+  return reply.type('text/calendar; charset=utf-8').send([
+    'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Lago//Personal Calendar//EN', 'X-WR-CALNAME:Lago',
+    ...entries, 'END:VCALENDAR', ''
+  ].map(fold).join('\r\n'));
+});
+
+const dist = fileURLToPath(new URL('../dist/', import.meta.url));
+if (existsSync(dist)) await app.register(serveStatic, { root: dist });
+await app.listen({ port: Number(process.env.PORT || 3000), host: process.env.HOST || '127.0.0.1' });

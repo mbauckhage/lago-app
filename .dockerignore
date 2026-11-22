@@ -1,0 +1,7 @@
+.git
+.env
+.env.*
+.lago-local
+node_modules
+dist
+preview

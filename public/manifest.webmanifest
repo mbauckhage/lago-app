@@ -1,0 +1,13 @@
+{
+  "id": "/",
+  "name": "Lago",
+  "short_name": "Lago",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f7faf7",
+  "theme_color": "#19604e",
+  "icons": [
+    { "src": "/lago-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/lago-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

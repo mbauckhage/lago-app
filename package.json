@@ -1,0 +1,23 @@
+{
+  "name": "lago",
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "api": "node --env-file-if-exists=.env server/index.js",
+    "build": "vite build",
+    "start": "node --env-file-if-exists=.env server/index.js"
+  },
+  "dependencies": {
+    "@fastify/static": "^10.1.12",
+    "fastify": "^5.12.8",
+    "luxon": "^3.7.2",
+    "pg": "^8.23.1",
+    "vue": "^3.5.46"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.11",
+    "vite": "^8.3.8"
+  },
+  "type": "module",
+  "private": true
+}
