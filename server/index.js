@@ -21,20 +21,26 @@ const zone = 'Europe/Zurich';
 const clean = value => typeof value === 'string' ? value.trim() : '';
 const error = (statusCode, message) => Object.assign(new Error(message), { statusCode });
 const invalid = message => error(400, message);
-const missing = () => error(404, 'Event unavailable.');
+const missing = () => error(404, 'Dieser Termin ist nicht verfügbar.');
 const validId = value => Number.isInteger(value) && value > 0 && value <= 2147483647;
 
 app.addHook('onClose', () => db.end());
 app.addHook('onRequest', async (req, reply) => {
   if (req.url.startsWith('/api/') || req.url.startsWith('/calendar/')) reply.header('Cache-Control', 'no-store');
   if (['POST', 'PATCH', 'PUT', 'DELETE'].includes(req.method) && req.headers['sec-fetch-site'] === 'cross-site') {
-    throw error(403, 'Open Lago to make this change.');
+    throw error(403, 'Öffne Lago Nostre, um diese Änderung vorzunehmen.');
   }
 });
 app.setErrorHandler((err, req, reply) => {
-  if (err.statusCode && err.statusCode < 500) return reply.code(err.statusCode).send({ message: err.message });
+  if (err.statusCode && err.statusCode < 500) {
+    let message = err.message;
+    if (err.code?.startsWith('FST_ERR_')) {
+      message = err.statusCode === 413 ? 'Die Anfrage ist zu gross.' : 'Die Anfrage konnte nicht verarbeitet werden.';
+    }
+    return reply.code(err.statusCode).send({ message });
+  }
   req.log.error(err);
-  return reply.code(500).send({ message: 'Something went wrong. Try again.' });
+  return reply.code(500).send({ message: 'Etwas ist schiefgelaufen. Versuch es erneut.' });
 });
 
 const adminEmail = clean(process.env.LAGO_ADMIN_EMAIL).toLowerCase();
@@ -55,7 +61,7 @@ if (adminEmail) {
   );
   if (!rowCount) await db.query(
     'INSERT INTO members (email,password,name,approved,admin,calendar_token) VALUES ($1,$2,$3,true,true,$4)',
-    [adminEmail, await passwordRecord(adminPassword), clean(process.env.LAGO_ADMIN_NAME) || 'Lago Admin', token()]
+    [adminEmail, await passwordRecord(adminPassword), clean(process.env.LAGO_ADMIN_NAME) || 'Lago Nostre Admin', token()]
   );
 }
 
@@ -77,14 +83,14 @@ async function signIn(reply, id) {
 
 async function member(req, access = 'approved') {
   const session = sessionToken(req);
-  if (!session) throw error(401, 'Sign in to continue.');
+  if (!session) throw error(401, 'Melde dich an, um fortzufahren.');
   const { rows: [user] } = await db.query(
     'SELECT m.* FROM sessions s JOIN members m ON m.id=s.member_id WHERE s.token=$1 AND s.expires>now()',
     [hash(session)]
   );
-  if (!user) throw error(401, 'Sign in to continue.');
-  if (access !== 'signed-in' && !user.approved) throw error(403, 'Your account is awaiting approval.');
-  if (access === 'admin' && !user.admin) throw error(403, 'Administrator access is required.');
+  if (!user) throw error(401, 'Melde dich an, um fortzufahren.');
+  if (access !== 'signed-in' && !user.approved) throw error(403, 'Dein Konto wartet auf die Freigabe.');
+  if (access === 'admin' && !user.admin) throw error(403, 'Diese Aktion ist der Administration vorbehalten.');
   return user;
 }
 
@@ -97,25 +103,25 @@ app.post('/api/register', async (req, reply) => {
   const { email, password, name } = req.body ?? {};
   const address = clean(email).toLowerCase();
   const displayName = clean(name);
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address) || address.length > 254) throw invalid('Enter a valid email address.');
-  if (typeof password !== 'string' || password.length < 12 || password.length > 128) throw invalid('Use a password with 12 to 128 characters.');
-  if (!displayName || displayName.length > 35) throw invalid('Enter a display name up to 35 characters.');
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address) || address.length > 254) throw invalid('Gib eine gültige E-Mail-Adresse ein.');
+  if (typeof password !== 'string' || password.length < 12 || password.length > 128) throw invalid('Verwende ein Passwort mit 12 bis 128 Zeichen.');
+  if (!displayName || displayName.length > 35) throw invalid('Gib einen Anzeigenamen mit höchstens 35 Zeichen ein.');
   const { rows: [user] } = await db.query(
     'INSERT INTO members (email,password,name,calendar_token) VALUES ($1,$2,$3,$4) ON CONFLICT (email) DO NOTHING RETURNING *',
     [address, await passwordRecord(password), displayName, token()]
   );
-  if (!user) throw error(409, 'An account already exists for this email. Sign in.');
+  if (!user) throw error(409, 'Für diese E-Mail-Adresse gibt es bereits ein Konto. Melde dich an.');
   await signIn(reply, user.id);
   return reply.code(201).send(account(user));
 });
 
 app.post('/api/login', async (req, reply) => {
   const { email, password } = req.body ?? {};
-  if (typeof password !== 'string' || password.length > 128) throw invalid('Enter your email and password.');
+  if (typeof password !== 'string' || password.length > 128) throw invalid('Gib deine E-Mail-Adresse und dein Passwort ein.');
   const { rows: [user] } = await db.query('SELECT * FROM members WHERE email=$1', [clean(email).toLowerCase()]);
   const [salt, expected] = (user?.password ?? `${'0'.repeat(64)}:${'0'.repeat(128)}`).split(':');
   const actual = await derive(password, salt, 64);
-  if (!user || !timingSafeEqual(actual, Buffer.from(expected, 'hex'))) throw error(401, 'Email or password is incorrect.');
+  if (!user || !timingSafeEqual(actual, Buffer.from(expected, 'hex'))) throw error(401, 'Die E-Mail-Adresse oder das Passwort ist falsch.');
   await signIn(reply, user.id);
   return account(user);
 });
@@ -142,9 +148,9 @@ app.patch('/api/me', async req => {
   const user = await member(req);
   const { name, photo, email_updates, push_updates } = req.body ?? {};
   const displayName = clean(name);
-  if (!displayName || displayName.length > 35) throw invalid('Enter a display name up to 35 characters.');
+  if (!displayName || displayName.length > 35) throw invalid('Gib einen Anzeigenamen mit höchstens 35 Zeichen ein.');
   validatePhoto(photo);
-  if (typeof email_updates !== 'boolean' || typeof push_updates !== 'boolean') throw invalid('Choose your notification preferences.');
+  if (typeof email_updates !== 'boolean' || typeof push_updates !== 'boolean') throw invalid('Wähle deine Benachrichtigungseinstellungen.');
   const { rows: [updated] } = await db.query(
     'UPDATE members SET name=$1,photo=coalesce($2,photo),email_updates=$3,push_updates=$4 WHERE id=$5 RETURNING *',
     [displayName, photo, email_updates, push_updates, user.id]
@@ -177,13 +183,13 @@ app.patch('/api/admin/members/:id', async req => {
   const id = Number(req.params.id);
   const { approved, groups: selected } = req.body ?? {};
   if (!validId(id) || approved !== true || !Array.isArray(selected) || !selected.every(group => groups.includes(group))) {
-    throw invalid('Choose an account and valid groups.');
+    throw invalid('Wähle ein Konto und gültige Gruppen.');
   }
   const client = await db.connect();
   try {
     await client.query('BEGIN');
     const result = await client.query('UPDATE members SET approved=true WHERE id=$1', [id]);
-    if (!result.rowCount) throw error(404, 'Account unavailable.');
+    if (!result.rowCount) throw error(404, 'Dieses Konto ist nicht verfügbar.');
     await client.query('DELETE FROM group_members WHERE member_id=$1', [id]);
     await client.query('INSERT INTO group_members SELECT unnest($1::text[]), $2', [[...new Set(selected)], id]);
     await client.query('COMMIT');
@@ -222,7 +228,7 @@ app.get('/api/events', async req => {
 function validatePhoto(photo) {
   if (photo !== undefined && (typeof photo !== 'string' || photo.length > 1_400_000 ||
     (photo && !/^data:image\/(?:jpeg|png|webp);base64,[a-z0-9+/]+=*$/i.test(photo)))) {
-    throw invalid('Choose a JPEG, PNG or WebP image under 1 MB.');
+    throw invalid('Wähle ein JPEG-, PNG- oder WebP-Bild unter 1 MB.');
   }
 }
 
@@ -231,18 +237,18 @@ async function eventFields(body, host) {
   const dateTime = typeof date === 'string' && typeof time === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(date + 'T' + time)
     ? DateTime.fromISO(date + 'T' + time, { zone }) : null;
   if (!dateTime?.isValid || dateTime.toISODate() !== date || dateTime.toFormat('HH:mm') !== time) {
-    throw invalid('Enter a valid date and time in Switzerland.');
+    throw invalid('Gib ein gültiges Datum und eine gültige Uhrzeit für die Schweiz ein.');
   }
   if (!clean(title) || clean(title).length > 75 || clean(place).length > 80 || clean(note).length > 350) {
-    throw invalid('Enter an event name and keep each field within its character limit.');
+    throw invalid('Gib einen Titel ein und beachte die Zeichenlimiten der Felder.');
   }
   if (!Array.isArray(people) || people.length > 500 || !people.every(id => validId(id) && id !== host) ||
-      !Array.isArray(selected) || !selected.every(group => groups.includes(group))) throw invalid('Choose valid invitees.');
+      !Array.isArray(selected) || !selected.every(group => groups.includes(group))) throw invalid('Wähle gültige Personen oder Gruppen aus.');
   validatePhoto(photo);
   const invitees = [...new Set(people)];
-  if (!invitees.length && !selected.length) throw invalid('Choose at least one person or group.');
+  if (!invitees.length && !selected.length) throw invalid('Wähle mindestens eine Person oder Gruppe aus.');
   const result = await db.query('SELECT id FROM members WHERE approved AND id=ANY($1::int[])', [invitees]);
-  if (result.rowCount !== invitees.length) throw invalid('An invitee is unavailable. Refresh and try again.');
+  if (result.rowCount !== invitees.length) throw invalid('Eine eingeladene Person ist nicht verfügbar. Lade die Seite neu und versuch es erneut.');
   return [clean(title), dateTime.toJSDate(), clean(place), clean(note), invitees, [...new Set(selected)], host, photo ?? null];
 }
 
@@ -281,7 +287,7 @@ app.put('/api/events/:id/rsvp', async req => {
   const id = Number(req.params.id);
   const status = req.body?.status;
   if (!validId(id)) throw missing();
-  if (!statuses.includes(status)) throw invalid('Choose Going, Maybe or Declined.');
+  if (!statuses.includes(status)) throw invalid('Wähle «Dabei», «Vielleicht» oder «Abgesagt».');
   const { rowCount } = await db.query(`
     INSERT INTO responses (event_id,member_id,status)
     SELECT e.id,$2,$3 FROM events e JOIN event_guests g ON g.event_id=e.id AND g.member_id=$2
@@ -310,9 +316,9 @@ function fold(line) {
 
 app.get('/calendar/:file', async (req, reply) => {
   const match = /^([a-f0-9]{64})\.ics$/.exec(req.params.file);
-  if (!match) throw error(404, 'Calendar unavailable.');
+  if (!match) throw error(404, 'Dieser Kalender ist nicht verfügbar.');
   const { rows: [user] } = await db.query('SELECT id FROM members WHERE approved AND calendar_token=$1', [match[1]]);
-  if (!user) throw error(404, 'Calendar unavailable.');
+  if (!user) throw error(404, 'Dieser Kalender ist nicht verfügbar.');
   const { rows } = await db.query(`
     SELECT e.* FROM events e
     WHERE NOT e.cancelled AND (e.host_id=$1 OR EXISTS (
@@ -325,7 +331,7 @@ app.get('/calendar/:file', async (req, reply) => {
     'LOCATION:' + calendarText(e.place), 'DESCRIPTION:' + calendarText(e.note), 'END:VEVENT'
   ]);
   return reply.type('text/calendar; charset=utf-8').send([
-    'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Lago//Personal Calendar//EN', 'X-WR-CALNAME:Lago',
+    'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Lago//Personal Calendar//EN', 'X-WR-CALNAME:Lago Nostre',
     ...entries, 'END:VCALENDAR', ''
   ].map(fold).join('\r\n'));
 });

@@ -1,7 +1,6 @@
 <script setup>
 defineProps({ name: String });
 const icons = {
-  waves:'M2 9c3 0 3-2 5-2s3 2 5 2 3-2 5-2 3 2 5 2M2 15c3 0 3-2 5-2s3 2 5 2 3-2 5-2 3 2 5 2',
   plus:'M12 5v14M5 12h14', feed:'M4 4h16v16H4zM4 9h16m-12 4h8m-8 3h5',
   calendar:'M4 6h16v14H4zM8 4v4m8-4v4M4 10h16m-12 4h1m3 0h1m3 0h1',
   profile:'M4 20a8 8 0 0 1 16 0M16 8a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z',
@@ -11,5 +10,5 @@ const icons = {
 </script>
 
 <template>
-  <svg viewBox="0 0 24 24" aria-hidden="true"><path :d="icons[name]" /></svg>
+  <svg class="inline-block size-[21px] shrink-0 fill-none stroke-current stroke-[1.75] align-middle [stroke-linecap:round] [stroke-linejoin:round]" viewBox="0 0 24 24" aria-hidden="true"><path :d="icons[name]" /></svg>
 </template>

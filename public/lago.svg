@@ -1,4 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192">
-  <rect width="192" height="192" fill="#19604e" rx="40"/>
-  <path d="M35 77c18 0 18-12 31-12s19 12 30 12 18-12 31-12 18 12 30 12M35 115c18 0 18-12 31-12s19 12 30 12 18-12 31-12 18 12 30 12" fill="none" stroke="white" stroke-width="9" stroke-linecap="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <title>Lago</title>
+  <rect width="256" height="256" fill="#111F62"/>
+  <g color="#FF626D" fill="#FF626D" fill-rule="evenodd"><g transform="translate(4 -7) scale(.95 1)"><path d="M34 94h13v49h25v12H34z
+M100 109q10 0 15 6v-5h12v45h-12v-5q-5 6-15 6c-13 0-22-10-22-23s9-24 22-24zm2 11c-7 0-12 5-12 13s5 12 12 12 13-5 13-12-6-13-13-13z
+M156 109q10 0 15 6v-5h12v42c0 15-10 23-25 23-9 0-16-3-22-8l7-9q6 6 15 6c8 0 13-4 13-12v-3q-5 6-15 6c-13 0-22-10-22-23s9-23 22-23zm2 11c-7 0-12 5-12 12s5 12 12 12 13-5 13-12-6-12-13-12z
+M213 109a24 24 0 1 1 0 48 24 24 0 1 1 0-48zm0 11a13 13 0 1 0 0 26 13 13 0 1 0 0-26z"/></g></g>
 </svg>
