@@ -11,17 +11,13 @@ Lago is a private web app for the Lago friends group. The first implementation u
 
 The server prepares the database schema at startup and creates the administrator on first boot. Changing the configured password later does not reset an existing administrator’s password.
 
-For development, run `npm run api` and `npm run dev` in separate terminals, then open the URL printed by Vite. For hosting behind HTTPS, set `NODE_ENV=production`, `HOST=0.0.0.0`, and the database and administrator settings through the host. The site uses the host-provided `PORT` if set.
+For development, run `./start.sh` and open [Lago with live reload](http://127.0.0.1:5173). Press Ctrl+C to stop the API and frontend. For hosting behind HTTPS, set `NODE_ENV=production`, `HOST=0.0.0.0`, and the database and administrator settings through the host. The site uses the host-provided `PORT` if set.
 
 The initial database is empty. The original design exploration is available in [preview](preview/index.html).
 
 ### Local database on the setup machine
 
-This checkout has a dedicated PostgreSQL instance on `127.0.0.1:5433`. Its data is in the ignored `.lago-local/postgres` directory, and the ignored `.env` contains the connection and local administrator credentials. If PostgreSQL is stopped, start it from the repo root:
-
-```sh
-pg_ctl -D "$PWD/.lago-local/postgres" -l "$PWD/.lago-local/postgres.log" start
-```
+This checkout has a dedicated PostgreSQL instance on `127.0.0.1:5433`. Its data is in the ignored `.lago-local/postgres` directory, and the ignored `.env` contains the connection and local administrator credentials. `./start.sh` starts this database if needed and leaves it running when the app stops.
 
 ## Railway
 
