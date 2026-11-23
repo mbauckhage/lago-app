@@ -1,0 +1,14 @@
+{
+  "id": "/",
+  "name": "Lago Nostre",
+  "lang": "de-CH",
+  "short_name": "Lago Nostre",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0d0e10",
+  "theme_color": "#0d0e10",
+  "icons": [
+    { "src": "/lago-test-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/lago-test-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

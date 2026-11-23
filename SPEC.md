@@ -20,7 +20,7 @@ New events use Europe/Zurich time. The feed shows newest posts first. Group invi
 
 **Platform.** Mobile-first web app with home-screen installation on supported browsers. The app uses Vue with Vite, Fastify and PostgreSQL. Railway is configured with separate test and production environments, each with its own database.
 
-The home-screen icon and browser favicon use the classic Lago wordmark in poppy red on deep blue. Home-screen installation uses the PNG icons in the web app manifest or the Apple touch icon on iOS.
+The home-screen icon and browser favicon use the classic Lago wordmark in poppy red on deep blue. Home-screen installation uses the PNG icons in the web app manifest or the Apple touch icon on iOS. In Railway’s test environment, the home-screen icon and browser favicon add a larger, tilted “Test” label above the wordmark.
 
 The header reserves the device’s top safe area in addition to its normal height and padding. Installed standalone apps add another 16px of top clearance so the title and actions sit below the iOS system status-bar blur. The clearance stays within the app viewport, preserving the bottom navigation and scrollable content area.
 
