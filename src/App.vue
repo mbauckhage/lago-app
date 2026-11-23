@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { DateTime } from 'luxon';
 import Icon from './Icon.vue';
+import PushSettings from './components/PushSettings.vue';
 import AppButton from './components/ui/AppButton.vue';
 import AppSheet from './components/ui/AppSheet.vue';
 import AppTab from './components/ui/AppTab.vue';
@@ -90,7 +91,11 @@ async function loadAccount() {
     if (problem.status !== 401) throw problem;
     me.value = null;
   }
-  if (me.value?.approved) await updateFeed();
+  if (me.value?.approved) {
+    await updateFeed();
+    const requested = Number(new URLSearchParams(location.search).get('event'));
+    if (events.value.some(event => event.id === requested)) { eventId.value = requested; await openSheet('details'); }
+  }
 }
 
 onMounted(async () => {
@@ -102,13 +107,23 @@ function authenticate(form) {
   const fields = Object.fromEntries(new FormData(form));
   return run(async () => {
     me.value = await api(signingUp.value ? '/register' : '/login', 'POST', fields);
-    if (me.value.approved) await updateFeed();
+    if (me.value.approved) {
+      await updateFeed();
+      const requested = Number(new URLSearchParams(location.search).get('event'));
+      if (events.value.some(event => event.id === requested)) { eventId.value = requested; await openSheet('details'); }
+    }
   });
 }
 
 function signOut() {
   return run(async () => {
-    await api('/logout', 'POST');
+    let subscription;
+    if ('serviceWorker' in navigator) {
+      const registration = await navigator.serviceWorker.getRegistration('/');
+      subscription = await registration?.pushManager?.getSubscription();
+    }
+    await api('/logout', 'POST', { endpoint: subscription?.endpoint });
+    await subscription?.unsubscribe().catch(() => {});
     me.value = null;
     events.value = [];
     members.value = [];
@@ -325,9 +340,10 @@ function resetCalendar() {
             <FormField>Profilfoto<input name="photo" type="file" accept="image/jpeg,image/png,image/webp"></FormField>
             <FormField v-if="me.photo" checkbox><input name="remove_photo" type="checkbox"> Profilfoto entfernen</FormField>
             <h2 class="mt-6 mb-2 text-[17px] font-bold tracking-[-.02em]">Benachrichtigungen</h2>
-            <p class="text-[13px] leading-[1.4] text-muted">Diese Einstellungen gelten, sobald E-Mail- und Push-Benachrichtigungen verfügbar sind.</p>
+            <p class="text-[13px] leading-[1.4] text-muted">Push informiert dich über neue Einladungen, Terminänderungen und Absagen. E-Mail-Benachrichtigungen sind noch nicht verfügbar.</p>
             <FormField checkbox><input name="email_updates" type="checkbox" :checked="me.email_updates"> E-Mail-Benachrichtigungen</FormField>
             <FormField checkbox><input name="push_updates" type="checkbox" :checked="me.push_updates"> Push-Benachrichtigungen</FormField>
+            <PushSettings />
             <AppButton variant="primary" class="mt-2.5" :disabled="busy" type="submit">Änderungen speichern</AppButton>
           </form>
           <section class="mt-[22px] border-t border-line pt-3.5 [&_h2]:mt-0">

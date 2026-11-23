@@ -52,3 +52,33 @@ JOIN members m ON m.approved AND m.id <> e.host_id
   AND (m.id = ANY(e.people) OR EXISTS (
     SELECT 1 FROM group_members g WHERE g.member_id = m.id AND g.group_name = ANY(e.groups)
   ));
+
+CREATE TABLE IF NOT EXISTS push_config (
+  id boolean PRIMARY KEY DEFAULT true CHECK (id),
+  public_key text NOT NULL,
+  private_key text NOT NULL
+);
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  endpoint text PRIMARY KEY,
+  member_id integer NOT NULL REFERENCES members ON DELETE CASCADE,
+  subscription jsonb NOT NULL
+);
+CREATE TABLE IF NOT EXISTS push_jobs (
+  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  event_id integer NOT NULL REFERENCES events ON DELETE CASCADE,
+  member_id integer NOT NULL REFERENCES members ON DELETE CASCADE,
+  kind text NOT NULL,
+  attempts integer NOT NULL DEFAULT 0,
+  available_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE OR REPLACE FUNCTION queue_event_push() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  INSERT INTO push_jobs (event_id,member_id,kind)
+    SELECT NEW.id,g.member_id,CASE WHEN TG_OP='INSERT' THEN 'invitation'
+      WHEN NEW.cancelled THEN 'cancelled' ELSE 'updated' END
+    FROM event_guests g WHERE g.event_id=NEW.id;
+  RETURN NEW;
+END;
+$$;
+DROP TRIGGER IF EXISTS event_push ON events;
+CREATE TRIGGER event_push AFTER INSERT OR UPDATE ON events FOR EACH ROW EXECUTE FUNCTION queue_event_push();

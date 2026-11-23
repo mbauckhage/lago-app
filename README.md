@@ -47,3 +47,9 @@ The Vue app uses Tailwind CSS v4 through `@tailwindcss/vite`. Shared colors and 
 <AppButton variant="soft" :disabled="busy" @click="save">Speichern</AppButton>
 <FormField>Anzeigename<input v-model="name" name="name" required></FormField>
 ```
+
+## Push notifications
+
+Use HTTPS on hosted installations. On iPhone/iPad (iOS 16.4+), add Lago to the Home Screen, launch it there, and choose **Profil → Push auf diesem Gerät aktivieren**, then allow notifications. Other supported browsers can enable push directly. The saved push preference controls delivery across devices; the device button registers or disconnects only that browser installation. Signing out disconnects the current device.
+
+Invitations, edits and cancellations enqueue notifications in PostgreSQL. The running API delivers them every five seconds, retries temporary failures, and deletes expired subscriptions. Set `WEB_PUSH_SUBJECT` to a monitored `mailto:` address. VAPID keys are generated automatically and persisted in `push_config`; preserve that table across deployments. Email delivery remains planned.

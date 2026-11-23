@@ -1,4 +1,5 @@
 import Fastify from 'fastify';
+import { setupPush } from './push.js';
 import serveStatic from '@fastify/static';
 import pg from 'pg';
 import { DateTime } from 'luxon';
@@ -99,6 +100,8 @@ function account(user) {
   return { id, name, approved, admin, photo, email_updates, push_updates, calendar_token: approved ? calendar_token : null };
 }
 
+await setupPush(app, db, member, invalid);
+
 app.post('/api/register', async (req, reply) => {
   const { email, password, name } = req.body ?? {};
   const address = clean(email).toLowerCase();
@@ -128,7 +131,10 @@ app.post('/api/login', async (req, reply) => {
 
 app.post('/api/logout', async (req, reply) => {
   const session = sessionToken(req);
-  if (session) await db.query('DELETE FROM sessions WHERE token=$1', [hash(session)]);
+  if (session) {
+    await db.query('DELETE FROM push_subscriptions WHERE endpoint=$1 AND member_id=(SELECT member_id FROM sessions WHERE token=$2)', [req.body?.endpoint, hash(session)]);
+    await db.query('DELETE FROM sessions WHERE token=$1', [hash(session)]);
+  }
   return reply.header('Set-Cookie', sessionCookie('', 0)).code(204).send();
 });
 
