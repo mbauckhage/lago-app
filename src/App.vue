@@ -1,6 +1,7 @@
 <script setup>
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { DateTime } from 'luxon';
+import { readPhoto } from './photos.js';
 import Icon from './Icon.vue';
 import PushSettings from './components/PushSettings.vue';
 import AppButton from './components/ui/AppButton.vue';
@@ -164,19 +165,6 @@ function editEvent(event) {
     };
     await openSheet('editor');
   }, dialog.value?.open ? sheetError : error);
-}
-
-function readPhoto(file) {
-  if (!file?.size) return Promise.resolve(undefined);
-  if (file.size > 1_048_576 || !['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
-    throw new Error('Wähle ein JPEG-, PNG- oder WebP-Bild unter 1 MB.');
-  }
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = () => reject(new Error('Das Foto konnte nicht gelesen werden. Wähle es erneut.'));
-    reader.readAsDataURL(file);
-  });
 }
 
 function saveEvent(form) {

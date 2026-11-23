@@ -30,6 +30,8 @@ The header reserves the device’s top safe area in addition to its normal heigh
 
 ## Frontend implementation
 
+Event covers and profile photos accept JPEG, PNG and WebP files. Before saving, the browser converts files larger than 1 MiB to WebP, reducing the longest edge to at most 1920 pixels, then lowering quality and dimensions until the result fits within 1 MiB. Browsers without WebP encoding use PNG and reduce dimensions instead. Smaller files remain unchanged. Aspect ratio and transparency are preserved. Unreadable or unconvertible images show an error without saving the form; the server continues enforcing its image payload limit.
+
 The Vue interface uses Tailwind CSS through its Vite plugin, with shared theme tokens and reusable UI components for buttons, navigation tabs, avatars and form fields. Event cards and RSVP controls compose these primitives. This structural refactor preserves the Stream layout, Swiss German copy, responsive sheets and existing product behavior.
 
 ## Push operations
