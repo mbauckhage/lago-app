@@ -22,6 +22,8 @@ New events use Europe/Zurich time. The feed shows newest posts first. Group invi
 
 The home-screen icon and browser favicon use the classic Lago wordmark in poppy red on deep blue. Home-screen installation uses the PNG icons in the web app manifest or the Apple touch icon on iOS.
 
+The header reserves the device’s top safe area in addition to its normal height and padding. Installed standalone apps add another 16px of top clearance so the title and actions sit below the iOS system status-bar blur. The clearance stays within the app viewport, preserving the bottom navigation and scrollable content area.
+
 ## Local development
 
 `./start.sh` starts the checkout’s local PostgreSQL database when present, using its matching major version from `PATH` or a standard Homebrew installation. It reports a missing matching version or displays the database log on startup failure. The database stays running when the API and frontend stop.

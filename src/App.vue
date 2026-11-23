@@ -247,7 +247,7 @@ function resetCalendar() {
 <template>
   <div class="grid h-dvh grid-rows-[auto_minmax(0,1fr)_auto]">
     <header class="border-b border-line bg-surface">
-      <div class="mx-auto w-full max-w-[580px] px-5 max-[360px]:px-3.5 flex min-h-[66px] items-center justify-between pt-[max(8px,env(safe-area-inset-top))] pb-2 [&_button]:flex [&_button]:items-center [&_button]:gap-[5px]">
+      <div class="app-header-content mx-auto w-full max-w-[580px] px-5 max-[360px]:px-3.5 flex items-center justify-between pb-2 [&_button]:flex [&_button]:items-center [&_button]:gap-[5px]">
         <span class="flex items-center gap-2 text-[25px] font-[780] tracking-[-.04em]">Lago Nostre</span>
         <AppButton variant="primary" v-if="me?.approved"  :disabled="busy" @click="editEvent()"><Icon name="plus" /> Neuer Termin</AppButton>
       </div>

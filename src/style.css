@@ -32,3 +32,16 @@
   fieldset { @apply my-2.5 rounded-xl border border-line px-2.5 py-1; }
   legend { @apply text-[13px] font-bold; }
 }
+
+.app-header-content {
+  --status-bar-clearance: 0px;
+  min-height: calc(66px + env(safe-area-inset-top, 0px) + var(--status-bar-clearance));
+  padding-top: calc(8px + env(safe-area-inset-top, 0px) + var(--status-bar-clearance));
+}
+
+@media (display-mode: standalone) {
+  .app-header-content {
+    /* Leave space below the system-owned status-bar blur in installed iOS apps. */
+    --status-bar-clearance: 16px;
+  }
+}
