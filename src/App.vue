@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { DateTime } from 'luxon';
 import { readPhoto } from './photos.js';
 import Icon from './Icon.vue';
+import ImageSelector from './components/ImageSelector.vue';
 import PushSettings from './components/PushSettings.vue';
 import AppButton from './components/ui/AppButton.vue';
 import AppSheet from './components/ui/AppSheet.vue';
@@ -388,7 +389,7 @@ function resetCalendar() {
         </div>
         <FormField>Ort <input v-model="draft.place" maxlength="80" placeholder="Ort hinzufügen"></FormField>
         <FormField>Notizen<textarea v-model="draft.note" maxlength="350" rows="2" placeholder="Was sollen die Gäste wissen?"></textarea></FormField>
-        <FormField>Titelbild<input name="photo" type="file" accept="image/jpeg,image/png,image/webp"></FormField>
+        <ImageSelector :key="draft.id ?? 'new'" :photo="draft.photo" />
         <FormField v-if="draft.photo" checkbox><input name="remove_photo" type="checkbox"> Titelbild entfernen</FormField>
         <fieldset>
           <legend>Gruppen einladen</legend>

@@ -1,6 +1,7 @@
 <script setup>
 defineProps({ name: String });
 const icons = {
+  image:'M4 4h16v16H4zM4 16l5-5 4 4 3-3 4 4M16 8h.01',
   plus:'M12 5v14M5 12h14', feed:'M4 4h16v16H4zM4 9h16m-12 4h8m-8 3h5',
   calendar:'M4 6h16v14H4zM8 4v4m8-4v4M4 10h16m-12 4h1m3 0h1m3 0h1',
   profile:'M4 20a8 8 0 0 1 16 0M16 8a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z',
