@@ -1,7 +1,8 @@
 {
   "id": "/",
-  "name": "Lago",
-  "short_name": "Lago",
+  "name": "Lago Nostre",
+  "lang": "de-CH",
+  "short_name": "Lago Nostre",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#f7faf7",

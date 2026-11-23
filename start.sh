@@ -14,12 +14,26 @@ fi
 
 postgres_dir="$PWD/.lago-local/postgres"
 if [[ -f "$postgres_dir/PG_VERSION" ]]; then
-  if ! command -v pg_ctl >/dev/null; then
-    echo "Install PostgreSQL or add pg_ctl to your PATH." >&2
+  postgres_major=$(<"$postgres_dir/PG_VERSION")
+  postgres_ctl=
+  for candidate in "$(command -v pg_ctl || true)" \
+    "/opt/homebrew/opt/postgresql@$postgres_major/bin/pg_ctl" \
+    "/usr/local/opt/postgresql@$postgres_major/bin/pg_ctl"; do
+    if [[ -x "$candidate" ]] && \
+      [[ "$("$candidate" --version)" == "pg_ctl (PostgreSQL) $postgres_major."* ]]; then
+      postgres_ctl="$candidate"
+      break
+    fi
+  done
+  if [[ -z "$postgres_ctl" ]]; then
+    echo "This local database requires PostgreSQL $postgres_major. Install that version and add its bin directory to PATH." >&2
     exit 1
   fi
-  if ! pg_ctl -D "$postgres_dir" status >/dev/null; then
-    pg_ctl -D "$postgres_dir" -l "$PWD/.lago-local/postgres.log" start
+  if ! "$postgres_ctl" -D "$postgres_dir" status >/dev/null; then
+    if ! "$postgres_ctl" -D "$postgres_dir" -l "$PWD/.lago-local/postgres.log" start; then
+      tail -n 30 "$PWD/.lago-local/postgres.log" >&2
+      exit 1
+    fi
   fi
 fi
 

@@ -2,10 +2,20 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { DateTime } from 'luxon';
 import Icon from './Icon.vue';
+import AppButton from './components/ui/AppButton.vue';
+import AppSheet from './components/ui/AppSheet.vue';
+import AppTab from './components/ui/AppTab.vue';
+import AppAvatar from './components/ui/AppAvatar.vue';
+import FormField from './components/ui/FormField.vue';
+import EventCard from './components/events/EventCard.vue';
+import RsvpControls from './components/events/RsvpControls.vue';
 
 const groups = ['Lago Nostre', 'Lago Plus'];
-const statuses = [['Going', 'check'], ['Maybe', 'maybe'], ['Declined', 'close']];
-const tabs = ['Feed', 'Calendar', 'Profile'];
+const responseLabels = { Going: 'Dabei', Maybe: 'Vielleicht', Declined: 'Abgesagt' };
+const responseLabel = status => responseLabels[status] ?? 'Antwort ausstehend';
+const locale = 'de-CH';
+const weekdays = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
+const tabs = { Feed: 'Übersicht', Calendar: 'Kalender', Profile: 'Profil' };
 const zone = 'Europe/Zurich';
 const today = () => DateTime.now().setZone(zone);
 const me = ref(null);
@@ -37,8 +47,7 @@ const visibleDays = computed(() => Array.from({ length: month.value.daysInMonth 
 }));
 const calendarEvents = computed(() => day.value ? monthEvents.value.filter(event => event.date === day.value) : monthEvents.value);
 const labelDate = (date, options = { weekday: 'short', day: 'numeric', month: 'short' }) =>
-  DateTime.fromISO(date, { zone }).setLocale('en-GB').toLocaleString(options);
-const initials = name => name.split(/\s+/).slice(0, 2).map(word => Array.from(word)[0]).join('').toUpperCase();
+  DateTime.fromISO(date, { zone }).setLocale(locale).toLocaleString(options);
 
 let noticeTimer;
 function announce(message) {
@@ -51,10 +60,10 @@ async function api(path, method = 'GET', body) {
   const response = await fetch('/api' + path, {
     method,
     ...(body === undefined ? {} : { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-  });
+  }).catch(() => { throw new Error('Lago Nostre ist gerade nicht erreichbar. Versuch es erneut.'); });
   if (!response.ok) {
     const data = await response.json().catch(() => ({}));
-    throw Object.assign(new Error(data.message || 'Lago is unavailable. Try again.'), { status: response.status });
+    throw Object.assign(new Error(data.message || 'Lago Nostre ist gerade nicht erreichbar. Versuch es erneut.'), { status: response.status });
   }
   return response.status === 204 ? undefined : response.json();
 }
@@ -127,7 +136,7 @@ function showEvent(event) {
   return run(async () => {
     await updateFeed();
     eventId.value = event.id;
-    if (!current.value) throw new Error('This event is no longer available.');
+    if (!current.value) throw new Error('Dieser Termin ist nicht mehr verfügbar.');
     await openSheet('details');
   });
 }
@@ -145,12 +154,12 @@ function editEvent(event) {
 function readPhoto(file) {
   if (!file?.size) return Promise.resolve(undefined);
   if (file.size > 1_048_576 || !['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
-    throw new Error('Choose a JPEG, PNG or WebP image under 1 MB.');
+    throw new Error('Wähle ein JPEG-, PNG- oder WebP-Bild unter 1 MB.');
   }
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(reader.result);
-    reader.onerror = () => reject(new Error('Could not read the photo. Choose it again.'));
+    reader.onerror = () => reject(new Error('Das Foto konnte nicht gelesen werden. Wähle es erneut.'));
     reader.readAsDataURL(file);
   });
 }
@@ -167,7 +176,7 @@ function saveEvent(form) {
     tab.value = 'Feed';
     await updateFeed();
     if (!id && content.value) content.value.scrollTop = 0;
-    announce(id ? 'Event updated' : 'Event posted');
+    announce(id ? 'Termin aktualisiert' : 'Termin veröffentlicht');
   }, sheetError);
 }
 
@@ -177,7 +186,7 @@ function cancelEvent() {
     sheet.value = 'details';
     await updateFeed();
     dialog.value.close();
-    announce('Event cancelled');
+    announce('Termin abgesagt');
   }, sheetError);
 }
 
@@ -185,7 +194,7 @@ function rsvp(event, status) {
   return run(async () => {
     await api('/events/' + event.id + '/rsvp', 'PUT', { status });
     await updateFeed();
-    announce('RSVP saved · ' + status);
+    announce('Antwort gespeichert · ' + responseLabel(status));
   }, dialog.value.open ? sheetError : error);
 }
 
@@ -204,7 +213,7 @@ function saveProfile(form) {
     });
     form.elements.photo.value = '';
     if (form.elements.remove_photo) form.elements.remove_photo.checked = false;
-    announce('Profile saved');
+    announce('Profil gespeichert');
     await updateFeed();
   });
 }
@@ -222,7 +231,7 @@ function saveMember(person, form) {
     await api('/admin/members/' + person.id, 'PATCH', { approved: true, groups: selected });
     adminMembers.value = await api('/admin/members');
     await updateFeed();
-    announce(person.approved ? 'Groups updated' : 'Member approved');
+    announce(person.approved ? 'Gruppen aktualisiert' : 'Mitglied freigegeben');
   }, sheetError);
 }
 
@@ -230,212 +239,186 @@ function resetCalendar() {
   return run(async () => {
     me.value = await api('/me/calendar', 'POST');
     dialog.value.close();
-    announce('New calendar link created');
+    announce('Neuer Kalenderlink erstellt');
   }, sheetError);
 }
 </script>
 
 <template>
-  <div class="lago">
-    <header class="header">
-      <div class="frame header-inner">
-        <span class="wordmark"><Icon name="waves" /> Lago</span>
-        <button v-if="me?.approved" class="primary" :disabled="busy" @click="editEvent()"><Icon name="plus" /> New event</button>
+  <div class="grid h-dvh grid-rows-[auto_minmax(0,1fr)_auto]">
+    <header class="border-b border-line bg-surface">
+      <div class="mx-auto w-full max-w-[580px] px-5 max-[360px]:px-3.5 flex min-h-[66px] items-center justify-between pt-[max(8px,env(safe-area-inset-top))] pb-2 [&_button]:flex [&_button]:items-center [&_button]:gap-[5px]">
+        <span class="flex items-center gap-2 text-[25px] font-[780] tracking-[-.04em]">Lago Nostre</span>
+        <AppButton variant="primary" v-if="me?.approved"  :disabled="busy" @click="editEvent()"><Icon name="plus" /> Neuer Termin</AppButton>
       </div>
     </header>
 
-    <main ref="content" class="screen">
-      <div class="frame">
-        <p v-if="error" class="error" role="alert">{{ error }}</p>
-        <p v-if="!ready" class="muted" role="status">Opening Lago…</p>
+    <main ref="content" class="overflow-auto overscroll-y-contain pt-[19px] pb-7">
+      <div class="mx-auto w-full max-w-[580px] px-5 max-[360px]:px-3.5">
+        <p v-if="error" class="mb-3.5 rounded-xl bg-danger-wash px-4 py-3.5 text-sm leading-[1.45] text-danger" role="alert">{{ error }}</p>
+        <p v-if="!ready" class="text-[13px] leading-[1.4] text-muted" role="status">Lago Nostre wird geöffnet…</p>
 
-        <section v-else-if="!me" class="account-panel">
-          <h1>{{ signingUp ? 'Join Lago' : 'Welcome to Lago' }}</h1>
-          <p class="subtitle">{{ signingUp ? 'An administrator will review your account before you can join.' : 'Sign in to make plans with the Lago crew.' }}</p>
+        <section v-else-if="!me" class="mx-auto mt-[clamp(20px,7vh,80px)] max-w-[420px]">
+          <h1>{{ signingUp ? 'Bei Lago Nostre registrieren' : 'Willkommen bei Lago Nostre' }}</h1>
+          <p class="mt-0 mb-5 text-sm leading-[1.45] text-muted">{{ signingUp ? 'Die Administration prüft dein Konto vor der Freigabe.' : 'Melde dich an, um mit der Lago-Gruppe Pläne zu machen.' }}</p>
           <form @submit.prevent="authenticate($event.currentTarget)">
-            <label v-if="signingUp">Display name<input name="name" autocomplete="nickname" maxlength="35" required></label>
-            <label>Email<input name="email" type="email" autocomplete="username" maxlength="254" required></label>
-            <label>Password<input name="password" type="password" :autocomplete="signingUp ? 'new-password' : 'current-password'"
-              :minlength="signingUp ? 12 : undefined" maxlength="128" required></label>
-            <p v-if="signingUp" class="muted">Use at least 12 characters.</p>
-            <button class="primary" :disabled="busy">{{ signingUp ? 'Create account' : 'Sign in' }}</button>
+            <FormField v-if="signingUp">Anzeigename<input name="name" autocomplete="nickname" maxlength="35" required></FormField>
+            <FormField>E-Mail-Adresse<input name="email" type="email" autocomplete="username" maxlength="254" required></FormField>
+            <FormField>Passwort<input name="password" type="password" :autocomplete="signingUp ? 'new-password' : 'current-password'"
+              :minlength="signingUp ? 12 : undefined" maxlength="128" required></FormField>
+            <p v-if="signingUp" class="text-[13px] leading-[1.4] text-muted">Verwende mindestens 12 Zeichen.</p>
+            <AppButton variant="primary" :disabled="busy" type="submit">{{ signingUp ? 'Konto erstellen' : 'Anmelden' }}</AppButton>
           </form>
-          <button class="plain switch-account" @click="signingUp = !signingUp; error = ''">
-            {{ signingUp ? 'Back to sign in' : 'Create an account' }}
-          </button>
+          <AppButton variant="plain" class="mt-2.5 !px-0" @click="signingUp = !signingUp; error = ''">
+            {{ signingUp ? 'Zurück zur Anmeldung' : 'Konto erstellen' }}
+          </AppButton>
         </section>
 
-        <section v-else-if="!me.approved" class="account-panel">
-          <h1>Awaiting approval</h1>
-          <p class="subtitle">Your account is ready, {{ me.name }}. An administrator needs to approve it before you can see Lago plans.</p>
-          <div class="controls">
-            <button class="primary" :disabled="busy" @click="run(loadAccount)">Check approval</button>
-            <button class="plain" :disabled="busy" @click="signOut">Sign out</button>
+        <section v-else-if="!me.approved" class="mx-auto mt-[clamp(20px,7vh,80px)] max-w-[420px]">
+          <h1>Freigabe ausstehend</h1>
+          <p class="mt-0 mb-5 text-sm leading-[1.45] text-muted">Dein Konto ist erstellt, {{ me.name }}. Sobald die Administration es freigibt, kannst du die Termine sehen.</p>
+          <div class="flex flex-wrap items-center gap-2">
+            <AppButton variant="primary" :disabled="busy" @click="run(loadAccount)">Freigabe prüfen</AppButton>
+            <AppButton variant="plain" :disabled="busy" @click="signOut">Abmelden</AppButton>
           </div>
         </section>
 
         <template v-else-if="tab === 'Feed'">
-          <h1>Your feed</h1>
-          <p class="subtitle">Plans with the Lago crew</p>
-          <p v-if="!events.length" class="empty">Your events and invitations will appear here.</p>
-          <article v-for="event in events" :key="event.id" class="post">
-            <div class="author">
-              <img v-if="event.host_photo" :src="event.host_photo" class="avatar" alt="">
-              <span v-else class="avatar" aria-hidden="true">{{ initials(event.host) }}</span>
-              <span><strong>{{ event.host }}</strong><small>{{ event.mine ? 'Hosted by you' : 'Invited you' }}</small></span>
-              <span v-if="event.cancelled" class="cancelled">Cancelled</span>
-            </div>
-            <img v-if="event.photo" class="photo" :src="event.photo" alt="" loading="lazy">
-            <div class="eventbody">
-              <h2><button class="title" @click="showEvent(event)">{{ event.title }}</button></h2>
-              <div class="meta"><Icon name="calendar" /> {{ labelDate(event.date) }} · {{ event.time }}</div>
-              <div v-if="event.place" class="meta"><Icon name="pin" /> {{ event.place }}</div>
-              <div v-if="!event.mine && !event.cancelled" class="actions" role="group" :aria-label="'RSVP for ' + event.title">
-                <button v-for="[status, icon] in statuses" :key="status" :class="!event.status && status === 'Going' ? 'primary' : 'soft'"
-                  :aria-pressed="event.status === status" :disabled="busy" @click="rsvp(event, status)"><Icon :name="icon" /> {{ status }}</button>
-              </div>
-            </div>
-          </article>
+          <h1>Deine Übersicht</h1>
+          <p class="mt-0 mb-5 text-sm leading-[1.45] text-muted">Pläne mit der Lago-Gruppe</p>
+          <p v-if="!events.length" class="rounded-xl bg-wash px-4 py-3.5 text-sm leading-[1.45] text-brand">Hier erscheinen deine Termine und Einladungen.</p>
+          <EventCard v-for="event in events" :key="event.id" :event="event" :busy="busy" :label-date="labelDate" @open="showEvent" @respond="rsvp" />
         </template>
 
         <template v-else-if="tab === 'Calendar'">
-          <h1>Calendar</h1>
-          <p class="subtitle">All your Lago plans and invitations</p>
-          <div class="calhead">
-            <h2 aria-live="polite">{{ month.setLocale('en-GB').toFormat('MMMM yyyy') }}</h2>
-            <button class="icon" aria-label="Previous month" @click="moveMonth(-1)"><Icon name="prev" /></button>
-            <button class="icon" aria-label="Next month" @click="moveMonth(1)"><Icon name="next" /></button>
+          <h1>Kalender</h1>
+          <p class="mt-0 mb-5 text-sm leading-[1.45] text-muted">Alle deine Termine und Einladungen</p>
+          <div class="mt-4 mb-2 flex items-center justify-between gap-2 [&_h2]:flex-1 [&_h2]:text-lg [&_h2]:font-bold">
+            <h2 aria-live="polite">{{ month.setLocale(locale).toFormat('MMMM yyyy') }}</h2>
+            <AppButton variant="icon" aria-label="Vorheriger Monat" @click="moveMonth(-1)"><Icon name="prev" /></AppButton>
+            <AppButton variant="icon" aria-label="Nächster Monat" @click="moveMonth(1)"><Icon name="next" /></AppButton>
           </div>
-          <div class="calendar" aria-label="Days of the month">
-            <span v-for="weekday in ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']" :key="weekday">{{ weekday }}</span>
+          <div class="grid grid-cols-7 gap-0.5 rounded-2xl bg-panel p-2 text-center [&_span]:py-[5px] [&_span]:text-[11px] [&_span]:text-muted [&_button]:relative [&_button]:min-h-10 [&_button]:rounded-[10px] [&_button]:text-sm [&_button]:tabular-nums [&_button[aria-pressed=true]]:bg-brand [&_button[aria-pressed=true]]:font-bold [&_button[aria-pressed=true]]:text-white" aria-label="Tage des Monats">
+            <span v-for="weekday in weekdays" :key="weekday">{{ weekday }}</span>
             <span v-for="index in month.weekday - 1" :key="'blank' + index" aria-hidden="true"></span>
-            <button v-for="entry in visibleDays" :key="entry.date" :class="{ 'has-event': entry.count }" :aria-pressed="day === entry.date"
-              :aria-label="labelDate(entry.date) + (entry.count ? ', ' + entry.count + (entry.count === 1 ? ' event' : ' events') : '')"
+            <button v-for="entry in visibleDays" :key="entry.date" :class="entry.count ? 'after:absolute after:bottom-[5px] after:left-[calc(50%-2px)] after:size-1 after:rounded-full after:bg-current' : ''" :aria-pressed="day === entry.date"
+              :aria-label="labelDate(entry.date) + (entry.count ? ', ' + entry.count + (entry.count === 1 ? ' Termin' : ' Termine') : '')"
               @click="day = day === entry.date ? '' : entry.date">{{ entry.number }}</button>
           </div>
-          <h2 class="heading">{{ day ? labelDate(day) : 'This month' }}</h2>
-          <button v-for="event in calendarEvents" :key="event.id" class="row" @click="showEvent(event)">
-            <img v-if="event.photo" class="thumb" :src="event.photo" alt="">
-            <span class="rowtxt"><strong>{{ event.title }}</strong><small>{{ labelDate(event.date) }} · {{ event.time }} · {{ event.cancelled ? 'Cancelled' : event.mine ? 'Hosting' : event.status || 'Awaiting reply' }}</small></span>
+          <h2 class="mt-6 mb-2 text-[17px] font-bold tracking-[-.02em]">{{ day ? labelDate(day) : 'Diesen Monat' }}</h2>
+          <button v-for="event in calendarEvents" :key="event.id" class="flex min-h-[62px] w-full items-center gap-[11px] border-b border-line py-2 text-left [&_svg]:size-[15px]" @click="showEvent(event)">
+            <img v-if="event.photo" class="size-12 rounded-[10px] bg-wash object-cover" :src="event.photo" alt="">
+            <span class="min-w-0 flex-1 [&_strong]:block [&_strong]:wrap-anywhere [&_small]:mt-1 [&_small]:block [&_small]:text-xs [&_small]:text-muted [&_small]:wrap-anywhere"><strong>{{ event.title }}</strong><small>{{ labelDate(event.date) }} · {{ event.time }} · {{ event.cancelled ? 'Abgesagt' : event.mine ? 'Von dir organisiert' : responseLabel(event.status) }}</small></span>
             <Icon name="next" />
           </button>
-          <p v-if="!calendarEvents.length" class="muted">No events {{ day ? 'on this date.' : 'this month.' }}</p>
+          <p v-if="!calendarEvents.length" class="text-[13px] leading-[1.4] text-muted">{{ day ? 'Keine Termine an diesem Tag.' : 'Keine Termine in diesem Monat.' }}</p>
         </template>
 
         <template v-else>
-          <h1>Profile</h1>
-          <div class="profilehead">
-            <img v-if="me.photo" :src="me.photo" class="avatar" alt="">
-            <span v-else class="avatar" aria-hidden="true">{{ initials(me.name) }}</span>
+          <h1>Profil</h1>
+          <div class="my-5 flex items-center gap-3.5">
+            <AppAvatar :name="me.name" :photo="me.photo" large />
             <strong>{{ me.name }}</strong>
           </div>
           <form @submit.prevent="saveProfile($event.currentTarget)">
-            <label>Display name<input name="name" :value="me.name" maxlength="35" required></label>
-            <label>Profile photo<input name="photo" type="file" accept="image/jpeg,image/png,image/webp"></label>
-            <label v-if="me.photo" class="check"><input name="remove_photo" type="checkbox"> Remove profile photo</label>
-            <h2 class="heading">Notifications</h2>
-            <p class="muted">These preferences will apply when email and push delivery are available.</p>
-            <label class="check"><input name="email_updates" type="checkbox" :checked="me.email_updates"> Email notifications</label>
-            <label class="check"><input name="push_updates" type="checkbox" :checked="me.push_updates"> Push notifications</label>
-            <button class="primary" :disabled="busy">Save changes</button>
+            <FormField>Anzeigename<input name="name" :value="me.name" maxlength="35" required></FormField>
+            <FormField>Profilfoto<input name="photo" type="file" accept="image/jpeg,image/png,image/webp"></FormField>
+            <FormField v-if="me.photo" checkbox><input name="remove_photo" type="checkbox"> Profilfoto entfernen</FormField>
+            <h2 class="mt-6 mb-2 text-[17px] font-bold tracking-[-.02em]">Benachrichtigungen</h2>
+            <p class="text-[13px] leading-[1.4] text-muted">Diese Einstellungen gelten, sobald E-Mail- und Push-Benachrichtigungen verfügbar sind.</p>
+            <FormField checkbox><input name="email_updates" type="checkbox" :checked="me.email_updates"> E-Mail-Benachrichtigungen</FormField>
+            <FormField checkbox><input name="push_updates" type="checkbox" :checked="me.push_updates"> Push-Benachrichtigungen</FormField>
+            <AppButton variant="primary" class="mt-2.5" :disabled="busy" type="submit">Änderungen speichern</AppButton>
           </form>
-          <section class="settings-section">
-            <h2 class="heading">Personal calendar</h2>
-            <p class="muted">Add this private subscription URL to your calendar app. It includes events you host and invitations you mark Going or Maybe.</p>
-            <label>Private calendar URL<input :value="calendarUrl" readonly @focus="$event.target.select()"></label>
-            <div class="controls">
-              <button class="soft" :disabled="busy" @click="run(async () => { await navigator.clipboard.writeText(calendarUrl); announce('Calendar URL copied'); })">Copy URL</button>
-              <button class="plain" :disabled="busy" @click="openSheet('reset-calendar')">Reset URL</button>
+          <section class="mt-[22px] border-t border-line pt-3.5 [&_h2]:mt-0">
+            <h2 class="mt-6 mb-2 text-[17px] font-bold tracking-[-.02em]">Persönlicher Kalender</h2>
+            <p class="text-[13px] leading-[1.4] text-muted">Füge diesen privaten Link in deiner Kalender-App als Abo hinzu. Er enthält Termine, die du organisierst, sowie Einladungen, auf die du mit «Dabei» oder «Vielleicht» antwortest.</p>
+            <FormField>Privater Kalenderlink<input :value="calendarUrl" readonly @focus="$event.target.select()"></FormField>
+            <div class="flex flex-wrap items-center gap-2">
+              <AppButton variant="soft" :disabled="busy" @click="run(async () => { await navigator.clipboard.writeText(calendarUrl); announce('Kalenderlink kopiert'); })">Link kopieren</AppButton>
+              <AppButton variant="plain" :disabled="busy" @click="openSheet('reset-calendar')">Link zurücksetzen</AppButton>
             </div>
           </section>
-          <div class="settings-section controls">
-            <button v-if="me.admin" class="soft" :disabled="busy" @click="openAdmin">Manage members</button>
-            <button class="plain" :disabled="busy" @click="signOut">Sign out</button>
+          <div class="mt-[22px] border-t border-line pt-3.5 [&_h2]:mt-0 flex flex-wrap items-center gap-2">
+            <AppButton variant="soft" v-if="me.admin"  :disabled="busy" @click="openAdmin">Mitglieder verwalten</AppButton>
+            <AppButton variant="plain" :disabled="busy" @click="signOut">Abmelden</AppButton>
           </div>
         </template>
       </div>
     </main>
 
-    <nav v-if="me?.approved" class="nav" aria-label="Lago tabs">
-      <div class="frame nav-inner">
-        <button v-for="name in tabs" :key="name" class="tab" :aria-current="tab === name ? 'page' : undefined" @click="tab = name">
-          <Icon :name="name.toLowerCase()" /> {{ name }}
-        </button>
+    <nav v-if="me?.approved" class="border-t border-line bg-surface pb-[env(safe-area-inset-bottom)]" aria-label="Hauptnavigation">
+      <div class="mx-auto w-full max-w-[580px] px-5 max-[360px]:px-3.5 flex min-h-[68px] items-center justify-around">
+        <AppTab v-for="(label, name) in tabs" :key="name" :active="tab === name" :icon="name.toLowerCase()" @click="tab = name">{{ label }}</AppTab>
       </div>
     </nav>
 
-    <dialog ref="dialog" class="sheet" aria-labelledby="sheet-title">
-      <div class="sheethead">
-        <h2 id="sheet-title">{{ sheet === 'details' ? current?.title : sheet === 'editor' ? (draft?.id ? 'Edit event' : 'New event')
-          : sheet === 'admin' ? 'Manage members' : sheet === 'reset-calendar' ? 'Reset calendar URL?' : 'Cancel this event?' }}</h2>
-        <button type="button" class="icon" aria-label="Close" @click="dialog.close()"><Icon name="close" /></button>
-      </div>
-      <p v-if="sheetError" class="error" role="alert">{{ sheetError }}</p>
+    <AppSheet ref="dialog">
+      <template #title>{{ sheet === 'details' ? current?.title : sheet === 'editor' ? (draft?.id ? 'Termin bearbeiten' : 'Neuer Termin')
+          : sheet === 'admin' ? 'Mitglieder verwalten' : sheet === 'reset-calendar' ? 'Kalenderlink zurücksetzen?' : 'Diesen Termin absagen?' }}</template>
+      <p v-if="sheetError" class="mb-3.5 rounded-xl bg-danger-wash px-4 py-3.5 text-sm leading-[1.45] text-danger" role="alert">{{ sheetError }}</p>
 
       <template v-if="sheet === 'details' && current">
-        <img v-if="current.photo" class="photo" :src="current.photo" alt="">
-        <p class="muted">Hosted by {{ current.host }}<span v-if="current.cancelled" class="cancelled">Cancelled</span></p>
-        <div class="meta"><Icon name="calendar" /> {{ labelDate(current.date) }} · {{ current.time }} Swiss time</div>
-        <div v-if="current.place" class="meta"><Icon name="pin" /> {{ current.place }}</div>
-        <p v-if="current.note" class="event-note">{{ current.note }}</p>
-        <h3 class="heading">Guests</h3>
-        <p v-if="!current.guests.length" class="muted">No members are currently invited.</p>
-        <ul v-else class="guests">
-          <li v-for="guest in current.guests" :key="guest.id"><span>{{ guest.name }}</span><span class="muted">{{ guest.status || 'Awaiting reply' }}</span></li>
+        <img v-if="current.photo" class="block h-[clamp(190px,52vw,305px)] w-full bg-wash object-cover" :src="current.photo" alt="">
+        <p class="text-[13px] leading-[1.4] text-muted">Organisiert von {{ current.host }}<span v-if="current.cancelled" class="ml-auto inline-block rounded-lg bg-danger-wash px-2 py-[5px] text-xs font-bold text-danger">Abgesagt</span></p>
+        <div class="flex flex-wrap items-center gap-1.5 text-[13px] leading-[1.4] text-muted [&_svg]:size-[15px]"><Icon name="calendar" /> {{ labelDate(current.date) }} · {{ current.time }} Schweizer Zeit</div>
+        <div v-if="current.place" class="flex flex-wrap items-center gap-1.5 text-[13px] leading-[1.4] text-muted [&_svg]:size-[15px]"><Icon name="pin" /> {{ current.place }}</div>
+        <p v-if="current.note" class="whitespace-pre-wrap wrap-anywhere">{{ current.note }}</p>
+        <h3 class="mt-6 mb-2 text-[17px] font-bold tracking-[-.02em]">Gäste</h3>
+        <p v-if="!current.guests.length" class="text-[13px] leading-[1.4] text-muted">Derzeit sind keine Mitglieder eingeladen.</p>
+        <ul v-else class="mt-4 mb-[18px] list-none p-0 [&_li]:flex [&_li]:justify-between [&_li]:gap-2 [&_li]:border-b [&_li]:border-line [&_li]:py-2.5">
+          <li v-for="guest in current.guests" :key="guest.id"><span>{{ guest.name }}</span><span class="text-[13px] leading-[1.4] text-muted">{{ responseLabel(guest.status) }}</span></li>
         </ul>
-        <div v-if="current.mine && !current.cancelled" class="controls">
-          <button class="primary" :disabled="busy" @click="editEvent(current)">Edit event</button>
-          <button class="plain danger" :disabled="busy" @click="openSheet('cancel')">Cancel event</button>
+        <div v-if="current.mine && !current.cancelled" class="flex flex-wrap items-center gap-2">
+          <AppButton variant="primary" :disabled="busy" @click="editEvent(current)">Termin bearbeiten</AppButton>
+          <AppButton variant="danger-plain"  :disabled="busy" @click="openSheet('cancel')">Termin absagen</AppButton>
         </div>
-        <div v-else-if="!current.cancelled" class="actions" role="group" :aria-label="'RSVP for ' + current.title">
-          <button v-for="[status, icon] in statuses" :key="status" :class="!current.status && status === 'Going' ? 'primary' : 'soft'"
-            :aria-pressed="current.status === status" :disabled="busy" @click="rsvp(current, status)"><Icon :name="icon" /> {{ status }}</button>
-        </div>
+        <RsvpControls v-else-if="!current.cancelled" :event="current" :busy="busy" @respond="rsvp(current, $event)" />
       </template>
 
       <form v-else-if="sheet === 'editor' && draft" @submit.prevent="saveEvent($event.currentTarget)">
-        <label>Event name<input v-model="draft.title" maxlength="75" required placeholder="Dinner on Saturday"></label>
-        <div class="two">
-          <label>Date<input v-model="draft.date" type="date" required></label>
-          <label>Time in Switzerland<input v-model="draft.time" type="time" required></label>
+        <FormField>Titel des Termins<input v-model="draft.title" maxlength="75" required placeholder="Abendessen am Samstag"></FormField>
+        <div class="grid grid-cols-2 gap-[9px]">
+          <FormField>Datum<input v-model="draft.date" type="date" required></FormField>
+          <FormField>Uhrzeit in der Schweiz<input v-model="draft.time" type="time" required></FormField>
         </div>
-        <label>Location <input v-model="draft.place" maxlength="80" placeholder="Add a place"></label>
-        <label>Notes<textarea v-model="draft.note" maxlength="350" rows="2" placeholder="Anything friends should know?"></textarea></label>
-        <label>Cover photo<input name="photo" type="file" accept="image/jpeg,image/png,image/webp"></label>
-        <label v-if="draft.photo" class="check"><input name="remove_photo" type="checkbox"> Remove cover photo</label>
+        <FormField>Ort <input v-model="draft.place" maxlength="80" placeholder="Ort hinzufügen"></FormField>
+        <FormField>Notizen<textarea v-model="draft.note" maxlength="350" rows="2" placeholder="Was sollen die Gäste wissen?"></textarea></FormField>
+        <FormField>Titelbild<input name="photo" type="file" accept="image/jpeg,image/png,image/webp"></FormField>
+        <FormField v-if="draft.photo" checkbox><input name="remove_photo" type="checkbox"> Titelbild entfernen</FormField>
         <fieldset>
-          <legend>Invite groups</legend>
-          <label v-for="group in groups" :key="group" class="check"><input v-model="draft.groups" type="checkbox" :value="group"> {{ group }}</label>
+          <legend>Gruppen einladen</legend>
+          <FormField v-for="group in groups" :key="group" checkbox><input v-model="draft.groups" type="checkbox" :value="group"> {{ group }}</FormField>
         </fieldset>
         <fieldset v-if="members.length">
-          <legend>Invite people</legend>
-          <label v-for="person in members" :key="person.id" class="check"><input v-model="draft.people" type="checkbox" :value="person.id"> {{ person.name }}</label>
+          <legend>Personen einladen</legend>
+          <FormField v-for="person in members" :key="person.id" checkbox><input v-model="draft.people" type="checkbox" :value="person.id"> {{ person.name }}</FormField>
         </fieldset>
-        <button class="primary wide" :disabled="busy">{{ draft.id ? 'Save event' : 'Post event' }}</button>
+        <AppButton variant="primary" class="mt-2 w-full" :disabled="busy" type="submit">{{ draft.id ? 'Termin speichern' : 'Termin veröffentlichen' }}</AppButton>
       </form>
 
       <template v-else-if="sheet === 'cancel'">
-        <p>Guests will see that the event is cancelled. It will be removed from personal calendar subscriptions.</p>
-        <div class="controls">
-          <button class="soft" :disabled="busy" @click="openSheet('details')">Keep event</button>
-          <button class="primary danger-button" :disabled="busy" @click="cancelEvent">Cancel event</button>
+        <p>Die Gäste sehen, dass der Termin abgesagt wurde. In persönlichen Kalenderabos wird er entfernt.</p>
+        <div class="flex flex-wrap items-center gap-2">
+          <AppButton variant="soft" :disabled="busy" @click="openSheet('details')">Termin beibehalten</AppButton>
+          <AppButton variant="danger"  :disabled="busy" @click="cancelEvent">Termin absagen</AppButton>
         </div>
       </template>
 
       <template v-else-if="sheet === 'admin'">
-        <form v-for="person in adminMembers" :key="person.id" class="member" @submit.prevent="saveMember(person, $event.currentTarget)">
+        <form v-for="person in adminMembers" :key="person.id" class="border-b border-line py-3.5 wrap-anywhere" @submit.prevent="saveMember(person, $event.currentTarget)">
           <strong>{{ person.name }}</strong>
-          <div class="muted">{{ person.email }} · {{ person.approved ? 'Approved' : 'Pending approval' }}{{ person.admin ? ' · Admin' : '' }}</div>
-          <label v-for="group in groups" :key="group" class="check"><input name="groups" type="checkbox" :value="group" :checked="person.groups.includes(group)"> {{ group }}</label>
-          <button class="primary" :disabled="busy">{{ person.approved ? 'Save groups' : 'Approve member' }}</button>
+          <div class="text-[13px] leading-[1.4] text-muted">{{ person.email }} · {{ person.approved ? 'Freigegeben' : 'Freigabe ausstehend' }}{{ person.admin ? ' · Admin' : '' }}</div>
+          <FormField v-for="group in groups" :key="group" checkbox><input name="groups" type="checkbox" :value="group" :checked="person.groups.includes(group)"> {{ group }}</FormField>
+          <AppButton variant="primary" class="mt-2.5" :disabled="busy" type="submit">{{ person.approved ? 'Gruppen speichern' : 'Mitglied freigeben' }}</AppButton>
         </form>
       </template>
 
       <template v-else-if="sheet === 'reset-calendar'">
-        <p>The current URL will stop working. Add the new URL to your calendar app to keep receiving updates.</p>
-        <button class="primary" :disabled="busy" @click="resetCalendar">Reset calendar URL</button>
+        <p>Der bisherige Link wird ungültig. Füge den neuen Link in deiner Kalender-App hinzu, um weiterhin Änderungen zu erhalten.</p>
+        <AppButton variant="primary" :disabled="busy" @click="resetCalendar">Kalenderlink zurücksetzen</AppButton>
       </template>
-    </dialog>
-    <div class="notice" role="status">{{ notice }}</div>
+    </AppSheet>
+    <div class="pointer-events-none fixed bottom-[calc(79px+env(safe-area-inset-bottom))] left-1/2 z-2 -translate-x-1/2 whitespace-nowrap rounded-[20px] bg-ink px-[15px] py-[9px] text-[13px] font-bold text-surface empty:p-0" role="status">{{ notice }}</div>
   </div>
 </template>

@@ -19,8 +19,26 @@ The initial database is empty. The original design exploration is available in [
 
 This checkout has a dedicated PostgreSQL instance on `127.0.0.1:5433`. Its data is in the ignored `.lago-local/postgres` directory, and the ignored `.env` contains the connection and local administrator credentials. `./start.sh` starts this database if needed and leaves it running when the app stops.
 
+The startup script requires the PostgreSQL major version recorded in the data directory (currently 14). It checks `PATH`, then the matching Homebrew installation under `/opt/homebrew` or `/usr/local`, and displays the database log if startup fails. A different major version cannot open the existing data directory.
+
 ## Railway
 
 The Lago Railway project has `test` and `production` environments. Each has an app and its own persistent PostgreSQL service. The app listens on port 3000 in Railway, uses the database's private connection URL, and serves a database-backed readiness check at `/api/health`.
 
 Deploy the intended commit from a clean checkout with `railway up --service lago --environment test`. After verifying test, deploy that same checkout with `railway up --service lago --environment production`. These are CLI uploads. Automatic GitHub deployments require connecting a repository.
+
+## Frontend components and styling
+
+The Vue app uses Tailwind CSS v4 through `@tailwindcss/vite`. Shared colors and the font live in the `@theme` block in `src/style.css`; layout and component styling use utility classes.
+
+- `src/components/ui/AppButton.vue`: primary, soft, plain, icon, danger and danger-plain variants. Defaults to `type="button"`; use `type="submit"` for form submissions. Native attributes and click listeners pass through.
+- `AppTab.vue`: navigation button with an icon and an `active` prop that sets `aria-current="page"`.
+- `AppAvatar.vue`: photo or name initials, with an optional `large` size.
+- `FormField.vue`: a label wrapping slotted native inputs or textareas; `checkbox` selects the checkbox layout. Native controls retain form names, validation and Vue bindings.
+- `AppSheet.vue`: native modal dialog with title/default slots and exposed `showModal`, `close` and `open` APIs. Native focus management and Escape handling are preserved.
+- `src/components/events/EventCard.vue` and `RsvpControls.vue`: compose the UI primitives, receive data via props and emit actions. API calls remain in `App.vue`.
+
+```vue
+<AppButton variant="soft" :disabled="busy" @click="save">Speichern</AppButton>
+<FormField>Anzeigename<input v-model="name" name="name" required></FormField>
+```
