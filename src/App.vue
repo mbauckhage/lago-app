@@ -286,7 +286,7 @@ function resetCalendar() {
         <template v-else-if="tab === 'Feed'">
           <h1>Deine Übersicht</h1>
           <p class="mt-0 mb-5 text-sm leading-[1.45] text-muted">Pläne mit der Lago-Gruppe</p>
-          <p v-if="!events.length" class="rounded-xl bg-wash px-4 py-3.5 text-sm leading-[1.45] text-brand">Hier erscheinen deine Termine und Einladungen.</p>
+          <p v-if="!events.length" class="rounded-xl bg-wash px-4 py-3.5 text-sm leading-[1.45] text-on-wash">Hier erscheinen deine Termine und Einladungen.</p>
           <EventCard v-for="event in events" :key="event.id" :event="event" :busy="busy" :label-date="labelDate" @open="showEvent" @respond="rsvp" />
         </template>
 
@@ -298,7 +298,7 @@ function resetCalendar() {
             <AppButton variant="icon" aria-label="Vorheriger Monat" @click="moveMonth(-1)"><Icon name="prev" /></AppButton>
             <AppButton variant="icon" aria-label="Nächster Monat" @click="moveMonth(1)"><Icon name="next" /></AppButton>
           </div>
-          <div class="grid grid-cols-7 gap-0.5 rounded-2xl bg-panel p-2 text-center [&_span]:py-[5px] [&_span]:text-[11px] [&_span]:text-muted [&_button]:relative [&_button]:min-h-10 [&_button]:rounded-[10px] [&_button]:text-sm [&_button]:tabular-nums [&_button[aria-pressed=true]]:bg-brand [&_button[aria-pressed=true]]:font-bold [&_button[aria-pressed=true]]:text-white" aria-label="Tage des Monats">
+          <div class="grid grid-cols-7 gap-0.5 rounded-2xl bg-panel p-2 text-center [&_span]:py-[5px] [&_span]:text-[11px] [&_span]:text-muted [&_button]:relative [&_button]:min-h-10 [&_button]:rounded-[10px] [&_button]:text-sm [&_button]:tabular-nums [&_button[aria-pressed=true]]:bg-brand [&_button[aria-pressed=true]]:font-bold [&_button[aria-pressed=true]]:text-on-brand" aria-label="Tage des Monats">
             <span v-for="weekday in weekdays" :key="weekday">{{ weekday }}</span>
             <span v-for="index in month.weekday - 1" :key="'blank' + index" aria-hidden="true"></span>
             <button v-for="entry in visibleDays" :key="entry.date" :class="entry.count ? 'after:absolute after:bottom-[5px] after:left-[calc(50%-2px)] after:size-1 after:rounded-full after:bg-current' : ''" :aria-pressed="day === entry.date"

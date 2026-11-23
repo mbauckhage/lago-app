@@ -2,15 +2,18 @@
 
 @theme {
   --font-sans: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
-  --color-surface: #f7faf7;
-  --color-panel: #fff;
-  --color-ink: #172621;
-  --color-muted: #50655c;
-  --color-brand: #19604e;
-  --color-wash: #e0efe7;
-  --color-line: #dce5de;
-  --color-danger: #87382e;
-  --color-danger-wash: #faece8;
+  --color-surface: #0d0e10;
+  --color-panel: #181a1e;
+  --color-control: #292c31;
+  --color-ink: #faf8f5;
+  --color-muted: #bfc1c8;
+  --color-brand: #ff626d;
+  --color-on-brand: #260b10;
+  --color-wash: #111f62;
+  --color-on-wash: #e2e9ff;
+  --color-line: #62656e;
+  --color-danger: #ff626d;
+  --color-danger-wash: #3b1d23;
   --animate-sheet-enter: sheet-enter .22s cubic-bezier(.2,.8,.2,1) both;
   @keyframes sheet-enter {
     from { transform: translateY(14px); opacity: .6; }
@@ -18,8 +21,8 @@
 }
 
 @layer base {
-  :root { @apply font-sans text-ink bg-surface accent-brand; font-synthesis: none; }
-  ::selection { @apply bg-wash text-ink; }
+  :root { @apply font-sans text-ink bg-surface accent-brand; font-synthesis: none; color-scheme: dark; }
+  ::selection { @apply bg-wash text-on-wash; }
   button { @apply cursor-pointer touch-manipulation active:scale-[.97] motion-reduce:active:scale-100 disabled:cursor-wait disabled:opacity-65; }
   button, input, textarea { @apply focus-visible:outline-2 focus-visible:outline-brand focus-visible:outline-offset-3; }
   input, textarea { @apply placeholder:text-muted; }
