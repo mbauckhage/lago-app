@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import AppButton from './ui/AppButton.vue';
 const props = defineProps({ accountId: Number, enabled: Boolean, profile: Boolean });
 const emit = defineEmits(['occupied']);
@@ -33,49 +33,64 @@ async function request(method, body) {
   if (!response.ok) throw new Error(data.message);
   return data;
 }
-onMounted(async () => {
-  if (!supported || (ios && !installed)) { loading.value = false; return; }
+let mounted = true;
+onBeforeUnmount(() => { mounted = false; });
+let preparation;
+async function prepare() {
+  loading.value = true;
   try {
-    registration = await navigator.serviceWorker.register('/sw.js');
+    await navigator.serviceWorker.register('/sw.js');
     registration = await navigator.serviceWorker.ready;
     const config = await request('GET');
-    publicKey = config.publicKey;
     const subscription = await registration.pushManager.getSubscription();
+    publicKey = config.publicKey;
     active.value = Boolean(subscription && config.endpoints.includes(subscription.endpoint));
-    if (active.value) { try { localStorage.setItem(promptKey, 'active'); } catch {} }
-    let restore = false;
-    let seen = false;
-    try {
-      seen = Boolean(localStorage.getItem(promptKey));
-      restore = localStorage.getItem(promptKey) === 'active' && permission.value === 'granted';
-    } catch {}
-    if (props.enabled && !active.value && (!seen || restore) && permission.value !== 'denied') {
-      onboarding.value = true;
-      // Safari requires a direct user gesture; show the activation control on iOS.
-      if (!ios || permission.value === 'granted') await enable();
+    if (mounted && active.value) {
+      onboarding.value = false;
+      try { localStorage.setItem(promptKey, 'active'); } catch {}
     }
-  } catch { problem.value = 'Push konnte nicht vorbereitet werden. Lade die Seite erneut.'; }
-  finally { loading.value = false; }
+    return true;
+  } catch {
+    problem.value = 'Push konnte nicht vorbereitet werden. Versuch es erneut.';
+    return false;
+  } finally { loading.value = false; }
+}
+onMounted(() => {
+  if (!supported || (ios && !installed)) { loading.value = false; return; }
+  let previous;
+  try { previous = localStorage.getItem(promptKey); } catch {}
+  preparation = prepare();
+  if (!props.enabled || permission.value === 'denied') return;
+  if (!previous || (previous === 'active' && permission.value === 'granted')) {
+    onboarding.value = !previous && permission.value !== 'granted';
+    if (!ios || permission.value === 'granted') enable(true);
+  }
 });
-async function enable() {
-  // Keep the system prompt directly inside the user's click gesture on iOS.
+async function enable(automatic = false) {
+  if (busy.value) return;
   busy.value = true;
   problem.value = '';
   try {
     // Invoke before any await to preserve the activation button's user gesture.
-    if (Notification.permission !== 'granted') permission.value = await Notification.requestPermission();
-    else permission.value = 'granted';
+    if (Notification.permission !== 'granted') await Notification.requestPermission();
+    permission.value = Notification.permission;
     if (permission.value !== 'granted') {
       if (permission.value === 'denied') dismiss();
       return;
     }
+    if (!mounted) return;
+    if (!automatic && !loading.value && !publicKey) preparation = prepare();
+    if (!(await preparation) || !mounted || active.value) return;
     const bytes = Uint8Array.from(atob(publicKey.replace(/-/g, '+').replace(/_/g, '/')), char => char.charCodeAt(0));
     const subscription = await registration.pushManager.getSubscription() || await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: bytes });
+    if (!mounted) return;
     await request('POST', subscription.toJSON());
     active.value = true;
     onboarding.value = false;
     try { localStorage.setItem(promptKey, 'active'); } catch {}
-  } catch { problem.value = 'Push konnte nicht aktiviert werden. Versuch es erneut.'; }
+  } catch {
+    if (!automatic || Notification.permission === 'granted') problem.value = 'Push konnte nicht aktiviert werden. Versuch es erneut.';
+  }
   finally { busy.value = false; }
 }
 async function disable() {
@@ -94,14 +109,16 @@ async function disable() {
 }
 </script>
 <template>
-  <section v-if="profile || onboarding" class="mt-4 mb-4" aria-label="Push auf diesem Gerät">
-    <h2 v-if="onboarding && !profile" class="mb-2 text-[17px] font-bold">Benachrichtigungen aktivieren</h2>
-    <p class="text-[13px] leading-[1.4] text-muted" role="status">{{ message }}</p>
-    <p v-if="problem" class="text-sm text-danger" role="alert">{{ problem }}</p>
-    <AppButton v-if="supported && (!ios || installed) && permission !== 'denied'" variant="soft" type="button"
-      :disabled="loading || busy || !publicKey" @click="active ? disable() : enable()">
-      {{ loading ? 'Push wird vorbereitet…' : active ? 'Push auf diesem Gerät deaktivieren' : 'Push auf diesem Gerät aktivieren' }}
-    </AppButton>
-    <AppButton v-if="onboarding" variant="plain" type="button" @click="dismiss">Später</AppButton>
-  </section>
+  <Teleport defer :to="profile ? '#device-push-settings' : 'body'">
+    <section v-if="profile || onboarding" :class="profile ? 'my-4' : 'fixed inset-x-3 top-[max(0.75rem,env(safe-area-inset-top))] z-50 mx-auto max-w-[540px] rounded-xl border border-line bg-panel p-4 text-ink shadow-lg'" aria-label="Push auf diesem Gerät">
+      <h2 v-if="onboarding && !profile" class="mb-2 text-[17px] font-bold">Benachrichtigungen aktivieren</h2>
+      <p class="text-[13px] leading-[1.4] text-muted" role="status">{{ message }}</p>
+      <p v-if="problem" class="text-sm text-danger" role="alert">{{ problem }}</p>
+      <AppButton v-if="supported && (!ios || installed) && permission !== 'denied'" variant="soft" type="button"
+        :disabled="busy || (profile && loading && !onboarding)" @click="active ? disable() : enable()">
+        {{ busy ? 'Bitte warten…' : active ? 'Push auf diesem Gerät deaktivieren' : 'Push auf diesem Gerät aktivieren' }}
+      </AppButton>
+      <AppButton v-if="onboarding" variant="plain" type="button" :disabled="busy" @click="dismiss">Später</AppButton>
+    </section>
+  </Teleport>
 </template>

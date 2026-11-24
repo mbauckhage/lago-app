@@ -510,7 +510,7 @@ function resetCalendar() {
             <AppButton variant="plain" :disabled="busy" @click="signOut">Abmelden</AppButton>
           </div>
         </template>
-        <PushSettings v-if="ready && me?.approved" :key="me.id" @occupied="pushOccupied = $event" :account-id="me.id" :enabled="me.push_updates" :profile="tab === 'Profile' && settingsOpen && !memberProfile" />
+        <div id="device-push-settings"></div>
       </div>
     </main>
 
@@ -588,5 +588,6 @@ function resetCalendar() {
     </AppSheet>
     <div class="pointer-events-none fixed bottom-[calc(79px+env(safe-area-inset-bottom))] left-1/2 z-2 -translate-x-1/2 whitespace-nowrap rounded-[20px] bg-ink px-[15px] py-[9px] text-[13px] font-bold text-surface empty:p-0" role="status">{{ notice }}</div>
   </div>
+  <PushSettings v-if="me?.approved" :key="me.id" @occupied="pushOccupied = $event" :account-id="me.id" :enabled="me.push_updates" :profile="!showOpening && tab === 'Profile' && settingsOpen && !memberProfile" />
   <InstallApp ref="installApp" :eligible="ready && !!me?.approved && !showOpening && !busy && !error && !pushOccupied && tab === 'Feed' && !memberProfile" />
 </template>
