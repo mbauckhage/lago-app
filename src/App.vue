@@ -21,6 +21,7 @@ import RsvpControls from './components/events/RsvpControls.vue';
 const installApp = ref(null);
 const pushOccupied = ref(true);
 const groups = ['Lago Nostre', 'Lago Plus'];
+const inviteGroups = ref([]);
 const responseLabels = { Going: 'Dabei', Maybe: 'Vielleicht', Declined: 'Abgesagt' };
 const responseLabel = status => responseLabels[status] ?? 'Antwort ausstehend';
 const locale = 'de-CH';
@@ -141,7 +142,62 @@ async function api(path, method = 'GET', body) {
   return response.status === 204 ? undefined : response.json();
 }
 
-const updateFeed = async () => { events.value = await api('/events'); };
+let requestedFeed = 0;
+let appliedFeed = 0;
+let loadedAccount;
+async function updateFeed() {
+  const account = me.value?.id;
+  const request = ++requestedFeed;
+  const rows = await api('/events');
+  if (account !== me.value?.id || request < appliedFeed) return;
+  appliedFeed = request;
+  if (loadedAccount === account) {
+    const known = new Set(events.value.map(event => event.id));
+    const invitations = rows.filter(event => !event.mine && !known.has(event.id));
+    if (invitations.length) announce(invitations.length === 1 ? 'Neue Einladung: ' + invitations[0].title : invitations.length + ' neue Einladungen');
+  }
+  loadedAccount = account;
+  events.value = rows;
+  if (sheet.value === 'details' && dialog.value?.open && !current.value) dialog.value.close();
+}
+
+watch(() => me.value?.approved && me.value.id, (account, previous, cleanup) => {
+  if (!account) { loadedAccount = undefined; return; }
+  const source = new EventSource('/api/events/live');
+  let retry;
+  async function refresh() {
+    clearTimeout(retry);
+    try {
+      await updateFeed();
+      if (sheet.value === 'editor' && dialog.value?.open) await updateInviteGroups();
+    } catch (err) {
+      if (me.value?.id !== account) return;
+      if (err.status === 401 || err.status === 403) {
+        me.value = null;
+        events.value = [];
+        dialog.value?.close();
+      } else retry = setTimeout(refresh, 3000);
+    }
+  }
+  const resume = () => { if (!document.hidden) refresh(); };
+  source.onmessage = refresh;
+  document.addEventListener('visibilitychange', resume);
+  window.addEventListener('online', resume);
+  cleanup(() => {
+    source.close();
+    clearTimeout(retry);
+    document.removeEventListener('visibilitychange', resume);
+    window.removeEventListener('online', resume);
+  });
+});
+
+async function updateInviteGroups() {
+  const account = me.value?.id;
+  const allowed = await api('/me/groups');
+  if (account !== me.value?.id) return;
+  inviteGroups.value = allowed;
+  if (draft.value) draft.value.groups = draft.value.groups.filter(group => allowed.includes(group));
+}
 
 async function run(action, feedback = error) {
   if (busy.value) return;
@@ -242,8 +298,9 @@ function showEvent(event) {
 
 function editEvent(event) {
   return run(async () => {
+    await updateInviteGroups();
     members.value = (await api('/members')).filter(member => member.id !== me.value.id);
-    draft.value = event ? { ...event, people: [...event.people], groups: [...event.groups] } : {
+    draft.value = event ? { ...event, people: [...event.people], groups: event.groups.filter(group => inviteGroups.value.includes(group)) } : {
       title: '', date: today().toISODate(), time: '18:00', place: '', note: '', photo: '', people: [], groups: []
     };
     await openSheet('editor');
@@ -496,9 +553,9 @@ function resetCalendar() {
         <FormField>Notizen<textarea v-model="draft.note" maxlength="350" rows="2" placeholder="Was sollen die Gäste wissen?"></textarea></FormField>
         <ImageSelector :key="draft.id ?? 'new'" :photo="draft.photo" />
         <FormField v-if="draft.photo" checkbox><input name="remove_photo" type="checkbox"> Titelbild entfernen</FormField>
-        <fieldset>
+        <fieldset v-if="inviteGroups.length">
           <legend>Gruppen einladen</legend>
-          <FormField v-for="group in groups" :key="group" checkbox><input v-model="draft.groups" type="checkbox" :value="group"> {{ group }}</FormField>
+          <FormField v-for="group in inviteGroups" :key="group" checkbox><input v-model="draft.groups" type="checkbox" :value="group"> {{ group }}</FormField>
         </fieldset>
         <fieldset v-if="members.length">
           <legend>Personen einladen</legend>

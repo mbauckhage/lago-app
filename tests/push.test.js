@@ -21,6 +21,7 @@ test('push routes, persistent keys and event queue', { skip: !process.env.DATABA
   await db.connect();
   const schema = `push_test_${Date.now()}`;
   let app;
+  let pool;
   try {
     await db.query(`CREATE SCHEMA ${schema}`);
     await db.query(`SET search_path TO ${schema}`);
@@ -32,7 +33,10 @@ test('push routes, persistent keys and event queue', { skip: !process.env.DATABA
       if (!req.headers['x-member']) throw Object.assign(new Error('Sign in'), { statusCode: 401 });
       return { id: Number(req.headers['x-member']) };
     };
-    await setupPush(app, db, member, message => Object.assign(new Error(message), { statusCode: 400 }));
+    pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, options: '-c search_path=' + schema });
+    const deliveries = [];
+    const deliver = await setupPush(app, pool, member, message => Object.assign(new Error(message), { statusCode: 400 }),
+      async (device, payload) => deliveries.push([device.endpoint, JSON.parse(payload).body]));
     assert.equal((await app.inject('/api/push')).statusCode, 401);
     const headers = { 'x-member': '2' };
     const config = (await app.inject({ url: '/api/push', headers })).json();
@@ -49,12 +53,24 @@ test('push routes, persistent keys and event queue', { skip: !process.env.DATABA
       VALUES (1,'Test',now(),'','',ARRAY[2],ARRAY['Lago Nostre'])`);
     await db.query("UPDATE events SET title='Updated'");
     await db.query('UPDATE events SET cancelled=true');
-    const jobs = (await db.query('SELECT member_id,kind FROM push_jobs ORDER BY id')).rows;
-    assert.deepEqual(jobs, ['invitation', 'updated', 'cancelled'].map(kind => ({ member_id: 2, kind })));
+    const jobs = (await db.query('SELECT member_id,kind FROM push_jobs ORDER BY member_id,id')).rows;
+    assert.deepEqual(jobs, [{ member_id: 1, kind: 'created' }, ...['invitation', 'updated', 'cancelled'].map(kind => ({ member_id: 2, kind }))]);
+    for (const id of [1, 2, 3]) {
+      const device = { ...subscription, endpoint: subscription.endpoint + id };
+      await app.inject({ method: 'POST', url: '/api/push', headers: { 'x-member': String(id) }, payload: device });
+    }
+    await deliver();
+    assert.deepEqual(deliveries.sort(), [
+      [subscription.endpoint + 1, 'Termin veröffentlicht: Updated'],
+      [subscription.endpoint + 2, 'Abgesagt: Updated'],
+      [subscription.endpoint + 2, 'Neue Einladung: Updated'],
+      [subscription.endpoint + 2, 'Termin aktualisiert: Updated']
+    ]);
     const stored = (await db.query('SELECT public_key FROM push_config')).rows[0].public_key;
     assert.equal(stored, config.publicKey);
   } finally {
     if (app) await app.close();
+    if (pool) await pool.end();
     await db.query(`DROP SCHEMA ${schema} CASCADE`);
     await db.end();
   }

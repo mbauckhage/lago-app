@@ -42,9 +42,14 @@ onMounted(async () => {
     publicKey = config.publicKey;
     const subscription = await registration.pushManager.getSubscription();
     active.value = Boolean(subscription && config.endpoints.includes(subscription.endpoint));
+    if (active.value) { try { localStorage.setItem(promptKey, 'active'); } catch {} }
+    let restore = false;
     let seen = false;
-    try { seen = localStorage.getItem(promptKey) === 'seen'; } catch {}
-    if (props.enabled && !active.value && !seen && permission.value !== 'denied') {
+    try {
+      seen = Boolean(localStorage.getItem(promptKey));
+      restore = localStorage.getItem(promptKey) === 'active' && permission.value === 'granted';
+    } catch {}
+    if (props.enabled && !active.value && (!seen || restore) && permission.value !== 'denied') {
       onboarding.value = true;
       // Safari requires a direct user gesture; show the activation control on iOS.
       if (!ios || permission.value === 'granted') await enable();
@@ -58,7 +63,8 @@ async function enable() {
   problem.value = '';
   try {
     // Invoke before any await to preserve the activation button's user gesture.
-    permission.value = await Notification.requestPermission();
+    if (Notification.permission !== 'granted') permission.value = await Notification.requestPermission();
+    else permission.value = 'granted';
     if (permission.value !== 'granted') {
       if (permission.value === 'denied') dismiss();
       return;
@@ -67,7 +73,8 @@ async function enable() {
     const subscription = await registration.pushManager.getSubscription() || await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: bytes });
     await request('POST', subscription.toJSON());
     active.value = true;
-    dismiss();
+    onboarding.value = false;
+    try { localStorage.setItem(promptKey, 'active'); } catch {}
   } catch { problem.value = 'Push konnte nicht aktiviert werden. Versuch es erneut.'; }
   finally { busy.value = false; }
 }
@@ -81,6 +88,7 @@ async function disable() {
       await subscription.unsubscribe();
     }
     active.value = false;
+    dismiss();
   } catch { problem.value = 'Push konnte nicht deaktiviert werden. Versuch es erneut.'; }
   finally { busy.value = false; }
 }

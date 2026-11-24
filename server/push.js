@@ -10,7 +10,7 @@ export function validSubscription(value) {
   } catch { return false; }
 }
 
-export async function setupPush(app, db, member, invalid) {
+export async function setupPush(app, db, member, invalid, sendNotification = webpush.sendNotification) {
   const keys = webpush.generateVAPIDKeys();
   await db.query('INSERT INTO push_config (public_key,private_key) VALUES ($1,$2) ON CONFLICT DO NOTHING', [keys.publicKey, keys.privateKey]);
   const { rows: [config] } = await db.query('SELECT * FROM push_config');
@@ -35,8 +35,12 @@ export async function setupPush(app, db, member, invalid) {
     return { saved: true };
   });
   let running = false;
+  let pending = false;
+  let closed = false;
   const deliver = async () => {
-    if (running) return;
+    if (closed) return;
+    if (running) { pending = true; return; }
+    pending = false;
     running = true;
     const client = await db.connect().catch(err => { app.log.error(err); running = false; });
     if (!client) return;
@@ -46,13 +50,13 @@ export async function setupPush(app, db, member, invalid) {
         WHERE available_at<=now() ORDER BY j.id LIMIT 20 FOR UPDATE OF j SKIP LOCKED`);
       for (const job of rows) {
         const { rows: subscriptions } = await client.query(`SELECT s.* FROM push_subscriptions s JOIN members m ON m.id=s.member_id
-          WHERE m.id=$1 AND m.approved AND m.push_updates AND EXISTS
-          (SELECT 1 FROM event_guests WHERE event_id=$2 AND member_id=m.id)`, [job.member_id, job.event_id]);
+          WHERE m.id=$1 AND m.approved AND m.push_updates AND ((m.id=(SELECT host_id FROM events WHERE id=$2) AND $3='created') OR EXISTS
+          (SELECT 1 FROM event_guests WHERE event_id=$2 AND member_id=m.id))`, [job.member_id, job.event_id, job.kind]);
         let retry = false;
         for (const item of subscriptions) {
           try {
-            await webpush.sendNotification(item.subscription, JSON.stringify({
-              title: 'Lago Nostre', body: `${job.kind === 'cancelled' ? 'Abgesagt' : job.kind === 'updated' ? 'Termin aktualisiert' : 'Neue Einladung'}: ${job.title}`,
+            await sendNotification(item.subscription, JSON.stringify({
+              title: 'Lago Nostre', body: `${job.kind === 'created' ? 'Termin veröffentlicht' : job.kind === 'cancelled' ? 'Abgesagt' : job.kind === 'updated' ? 'Termin aktualisiert' : 'Neue Einladung'}: ${job.title}`,
               tag: `event-${job.event_id}`, url: `/?event=${job.event_id}`
             }), { TTL: 86400, timeout: 10000 });
           } catch (err) {
@@ -64,10 +68,16 @@ export async function setupPush(app, db, member, invalid) {
         else await client.query('DELETE FROM push_jobs WHERE id=$1', [job.id]);
       }
       await client.query('COMMIT');
+      if (rows.length === 20) pending = true;
     } catch (err) { await client.query('ROLLBACK'); app.log.error(err); }
-    finally { client.release(); running = false; }
+    finally {
+      client.release();
+      running = false;
+      if (pending) setImmediate(deliver);
+    }
   };
   const timer = setInterval(deliver, 5000);
   timer.unref();
-  app.addHook('onClose', async () => clearInterval(timer));
+  app.addHook('onClose', async () => { closed = true; clearInterval(timer); });
+  return deliver;
 }

@@ -1,0 +1,78 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
+import { once } from 'node:events';
+import { randomBytes, createHash } from 'node:crypto';
+import { createInterface } from 'node:readline';
+import pg from 'pg';
+
+test('live invitations, group permissions and access removal across sessions', {
+  skip: !process.env.DATABASE_URL, timeout: 15000
+}, async () => {
+  const db = new pg.Client({ connectionString: process.env.DATABASE_URL });
+  await db.connect();
+  const schema = 'sync_test_' + randomBytes(8).toString('hex');
+  const streams = new AbortController();
+  let server;
+  try {
+    await db.query('CREATE SCHEMA ' + schema);
+    await db.query('SET search_path TO ' + schema);
+    const url = new URL(process.env.DATABASE_URL);
+    url.searchParams.set('options', '-c search_path=' + schema);
+    server = spawn(process.execPath, ['server/index.js'], { env: {
+      ...process.env, DATABASE_URL: url.href, HOST: '127.0.0.1', PORT: '0', LAGO_ADMIN_EMAIL: '', LAGO_ADMIN_PASSWORD: ''
+    }, stdio: ['ignore', 'pipe', 'inherit'] });
+    let origin;
+    for await (const line of createInterface({ input: server.stdout })) {
+      const match = line.match(/Server listening at (http:\/\/127\.0\.0\.1:\d+)/);
+      if (match) { origin = match[1]; break; }
+    }
+    assert.ok(origin);
+    const cookies = [];
+    for (const name of ['host', 'group', 'both', 'outside']) {
+      const { rows: [user] } = await db.query('INSERT INTO members(email,name,password,calendar_token,approved) VALUES ($1,$1,$1,$1,true) RETURNING id', [name]);
+      const token = randomBytes(32).toString('hex');
+      await db.query("INSERT INTO sessions VALUES ($1,$2,now()+interval '1 hour')", [createHash('sha256').update(token).digest('hex'), user.id]);
+      cookies.push('lago_session=' + token);
+    }
+    await db.query("INSERT INTO group_members VALUES ('Lago Nostre',1),('Lago Nostre',2),('Lago Nostre',3),('Lago Plus',4)");
+    const api = (index, path, method = 'GET', body) => fetch(origin + '/api' + path, {
+      method, headers: { cookie: cookies[index], ...(body && { 'Content-Type': 'application/json' }) }, body: JSON.stringify(body)
+    });
+    const follow = async index => {
+      const response = await fetch(origin + '/api/events/live', { headers: { cookie: cookies[index] }, signal: streams.signal });
+      const reader = response.body.getReader();
+      await reader.read(); // initial snapshot signal
+      return async () => assert.match(new TextDecoder().decode((await reader.read()).value), /data: refresh/);
+    };
+    const [host, guest, both] = await Promise.all([0, 1, 2].map(follow));
+    assert.deepEqual(await (await api(0, '/me/groups')).json(), ['Lago Nostre']);
+    const event = { title: 'Dinner', date: '2027-01-01', time: '18:00', people: [3], groups: ['Lago Nostre'] };
+    assert.equal((await api(0, '/events', 'POST', { ...event, groups: ['Lago Plus'] })).status, 400);
+    assert.equal((await api(0, '/events', 'POST', event)).status, 201);
+    await Promise.all([host(), guest(), both()]);
+    for (const index of [0, 1, 2, 3]) {
+      const rows = await (await api(index, '/events')).json();
+      assert.deepEqual(rows.map(row => row.title), index === 3 ? [] : ['Dinner']);
+    }
+    assert.equal((await api(1, '/events/1/rsvp', 'PUT', { status: 'Going' })).status, 200);
+    await Promise.all([host(), guest(), both()]);
+    await db.query("DELETE FROM group_members WHERE member_id=1");
+    await Promise.all([host(), guest(), both()]);
+    assert.equal((await api(0, '/events/1', 'PATCH', { ...event, groups: [], people: [] })).status, 200);
+    await Promise.all([host(), guest(), both()]);
+    assert.deepEqual((await (await api(0, '/events')).json())[0].groups, ['Lago Nostre']);
+    await db.query("DELETE FROM group_members WHERE member_id=2");
+    await Promise.all([host(), guest(), both()]);
+    assert.deepEqual(await (await api(1, '/events')).json(), []);
+  } finally {
+    streams.abort();
+    if (server && server.exitCode === null && !server.signalCode) {
+      const exited = once(server, 'exit');
+      server.kill();
+      await exited;
+    }
+    await db.query('DROP SCHEMA ' + schema + ' CASCADE');
+    await db.end();
+  }
+});

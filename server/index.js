@@ -1,4 +1,5 @@
 import Fastify from 'fastify';
+import { setupLive } from './live.js';
 import { setupPush } from './push.js';
 import serveStatic from '@fastify/static';
 import pg from 'pg';
@@ -100,7 +101,14 @@ function account(user) {
   return { id, name, approved, admin, photo, email_updates, push_updates, calendar_token: approved ? calendar_token : null };
 }
 
-await setupPush(app, db, member, invalid);
+const deliver = await setupPush(app, db, member, invalid);
+await setupLive(app, db, member, deliver);
+
+app.get('/api/me/groups', async req => {
+  const user = await member(req);
+  const { rows } = await db.query('SELECT group_name FROM group_members WHERE member_id=$1 ORDER BY group_name', [user.id]);
+  return rows.map(row => row.group_name);
+});
 
 app.post('/api/register', async (req, reply) => {
   const { email, password, name } = req.body ?? {};
@@ -238,7 +246,7 @@ function validatePhoto(photo) {
   }
 }
 
-async function eventFields(body, host) {
+async function eventFields(body, host, editing = false) {
   const { title, date, time, place, note, photo, people, groups: selected } = body ?? {};
   const dateTime = typeof date === 'string' && typeof time === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(date + 'T' + time)
     ? DateTime.fromISO(date + 'T' + time, { zone }) : null;
@@ -252,18 +260,22 @@ async function eventFields(body, host) {
       !Array.isArray(selected) || !selected.every(group => groups.includes(group))) throw invalid('Wähle gültige Personen oder Gruppen aus.');
   validatePhoto(photo);
   const invitees = [...new Set(people)];
-  if (!invitees.length && !selected.length) throw invalid('Wähle mindestens eine Person oder Gruppe aus.');
+  if (!editing && !invitees.length && !selected.length) throw invalid('Wähle mindestens eine Person oder Gruppe aus.');
   const result = await db.query('SELECT id FROM members WHERE approved AND id=ANY($1::int[])', [invitees]);
   if (result.rowCount !== invitees.length) throw invalid('Eine eingeladene Person ist nicht verfügbar. Lade die Seite neu und versuch es erneut.');
   return [clean(title), dateTime.toJSDate(), clean(place), clean(note), invitees, [...new Set(selected)], host, photo ?? null];
 }
 
+const hostGroups = 'ARRAY(SELECT group_name FROM group_members WHERE member_id=$7)';
+
 app.post('/api/events', async (req, reply) => {
   const user = await member(req);
   const { rows: [event] } = await db.query(
-    "INSERT INTO events (title,starts_at,place,note,people,groups,host_id,photo) VALUES ($1,$2,$3,$4,$5,$6,$7,coalesce($8,'')) RETURNING id",
+    `INSERT INTO events (title,starts_at,place,note,people,groups,host_id,photo)
+     SELECT $1,$2,$3,$4,$5,$6,$7,coalesce($8,'') WHERE $6::text[] <@ ${hostGroups} RETURNING id`,
     await eventFields(req.body, user.id)
   );
+  if (!event) throw invalid('Wähle nur Gruppen, denen du angehörst.');
   return reply.code(201).send(event);
 });
 
@@ -271,8 +283,10 @@ app.patch('/api/events/:id', async req => {
   const user = await member(req);
   const id = Number(req.params.id);
   if (!validId(id)) throw missing();
-  const { rowCount } = await db.query(`UPDATE events SET title=$1,starts_at=$2,place=$3,note=$4,people=$5,groups=$6,photo=coalesce($8,photo),
-    updated_at=clock_timestamp() WHERE host_id=$7 AND id=$9 AND NOT cancelled`, [...await eventFields(req.body, user.id), id]);
+  const { rowCount } = await db.query(`UPDATE events SET title=$1,starts_at=$2,place=$3,note=$4,people=$5,
+    groups=ARRAY(SELECT unnest($6::text[]) UNION SELECT g FROM unnest(events.groups) g WHERE NOT g=ANY(${hostGroups})),photo=coalesce($8,photo),
+    updated_at=clock_timestamp() WHERE host_id=$7 AND id=$9 AND NOT cancelled AND $6::text[] <@ ${hostGroups}
+    AND (cardinality($5::int[]) + cardinality($6::text[]) > 0 OR NOT events.groups <@ ${hostGroups})`, [...await eventFields(req.body, user.id, true), id]);
   if (!rowCount) throw missing();
   return { saved: true };
 });

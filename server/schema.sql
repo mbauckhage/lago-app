@@ -82,3 +82,41 @@ END;
 $$;
 DROP TRIGGER IF EXISTS event_push ON events;
 CREATE TRIGGER event_push AFTER INSERT OR UPDATE ON events FOR EACH ROW EXECUTE FUNCTION queue_event_push();
+
+CREATE OR REPLACE FUNCTION signal_event_change() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+  recipient integer;
+BEGIN
+  IF TG_TABLE_NAME = 'group_members' THEN
+    FOR recipient IN SELECT coalesce(NEW.member_id, OLD.member_id)
+      UNION SELECT e.host_id FROM events e WHERE coalesce(NEW.group_name, OLD.group_name)=ANY(e.groups)
+      UNION SELECT g.member_id FROM event_guests g JOIN events e ON e.id=g.event_id
+        WHERE coalesce(NEW.group_name, OLD.group_name)=ANY(e.groups) LOOP
+      PERFORM pg_notify('lago_changes', recipient::text);
+    END LOOP;
+  ELSIF TG_TABLE_NAME = 'responses' THEN
+    FOR recipient IN SELECT member_id FROM event_guests WHERE event_id=NEW.event_id
+      UNION SELECT host_id FROM events WHERE id=NEW.event_id LOOP
+      PERFORM pg_notify('lago_changes', recipient::text);
+    END LOOP;
+  ELSE
+    FOR recipient IN SELECT member_id FROM event_guests WHERE event_id=NEW.id
+      UNION SELECT NEW.host_id
+      UNION SELECT unnest(OLD.people)
+      UNION SELECT member_id FROM group_members WHERE group_name=ANY(OLD.groups) LOOP
+      PERFORM pg_notify('lago_changes', recipient::text);
+    END LOOP;
+    IF TG_OP='INSERT' THEN
+      INSERT INTO push_jobs (event_id,member_id,kind) VALUES (NEW.id,NEW.host_id,'created');
+    END IF;
+    PERFORM pg_notify('lago_changes', 'push');
+  END IF;
+  RETURN NULL;
+END;
+$$;
+DROP TRIGGER IF EXISTS event_change ON events;
+CREATE TRIGGER event_change AFTER INSERT OR UPDATE ON events FOR EACH ROW EXECUTE FUNCTION signal_event_change();
+DROP TRIGGER IF EXISTS response_change ON responses;
+CREATE TRIGGER response_change AFTER INSERT OR UPDATE ON responses FOR EACH ROW EXECUTE FUNCTION signal_event_change();
+DROP TRIGGER IF EXISTS membership_change ON group_members;
+CREATE TRIGGER membership_change AFTER INSERT OR DELETE ON group_members FOR EACH ROW EXECUTE FUNCTION signal_event_change();
