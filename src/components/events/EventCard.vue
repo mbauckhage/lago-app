@@ -3,14 +3,14 @@ import Icon from '../../Icon.vue';
 import AppAvatar from '../ui/AppAvatar.vue';
 import RsvpControls from './RsvpControls.vue';
 defineProps({ event: { type: Object, required: true }, busy: Boolean, labelDate: { type: Function, required: true } });
-defineEmits(['open', 'respond']);
+defineEmits(['open', 'respond', 'profile']);
 </script>
 
 <template>
           <article class="mb-[18px] overflow-hidden rounded-2xl bg-panel shadow-[0_4px_16px_#0003]">
             <div class="flex items-center gap-[9px] px-3 py-2.5 [&_strong]:block [&_strong]:text-[13px] [&_small]:mt-0.5 [&_small]:block [&_small]:text-[11px] [&_small]:text-muted">
-              <AppAvatar :name="event.host" :photo="event.host_photo" />
-              <span><strong>{{ event.host }}</strong><small>{{ event.mine ? 'Von dir organisiert' : 'Hat dich eingeladen' }}</small></span>
+              <button type="button" :aria-label="'Profil von ' + event.host" @click="$emit('profile', event)"><AppAvatar :name="event.host" :photo="event.host_photo" /></button>
+              <span><strong><button type="button" class="text-left hover:underline" @click="$emit('profile', event)">{{ event.host }}</button></strong><small>{{ event.mine ? 'Von dir organisiert' : 'Hat dich eingeladen' }}</small></span>
               <span v-if="event.cancelled" class="ml-auto inline-block rounded-lg bg-danger-wash px-2 py-[5px] text-xs font-bold text-danger">Abgesagt</span>
               <span v-else-if="!event.mine && !event.status" class="ml-auto rounded-lg bg-wash px-2 py-[5px] text-xs font-bold text-on-wash">Antwort ausstehend</span>
             </div>

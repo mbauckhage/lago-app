@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { DateTime } from 'luxon';
 import { readPhoto } from './photos.js';
 import Icon from './Icon.vue';
+import { memberEvents } from './member-events.js';
 import ImageSelector from './components/ImageSelector.vue';
 import ProfilePhoto from './components/ProfilePhoto.vue';
 import PushSettings from './components/PushSettings.vue';
@@ -28,6 +29,35 @@ const ready = ref(false);
 const signingUp = ref(false);
 const tab = ref('Feed');
 const events = ref([]);
+const memberProfile = ref(null);
+const profileTab = ref('own');
+const profileEvents = computed(() => memberEvents(events.value, memberProfile.value?.id, profileTab.value));
+const profileOrigins = [];
+
+async function showMember(person) {
+  profileOrigins.push({ profile: memberProfile.value, tab: profileTab.value, scroll: content.value?.scrollTop ?? 0, eventId: eventId.value, details: dialog.value?.open && sheet.value === 'details' });
+  dialog.value?.close();
+  memberProfile.value = person;
+  profileTab.value = 'own';
+  await nextTick();
+  content.value.scrollTop = 0;
+  content.value.querySelector('h1')?.focus();
+}
+
+function showHost(event) {
+  return showMember({ id: event.host_id, name: event.host, photo: event.host_photo });
+}
+
+async function closeMember() {
+  const origin = profileOrigins.pop();
+  memberProfile.value = origin?.profile ?? null;
+  profileTab.value = origin?.tab ?? 'own';
+  eventId.value = origin?.eventId ?? null;
+  await nextTick();
+  content.value.scrollTop = origin?.scroll ?? 0;
+  if (origin?.details && current.value) await openSheet('details');
+}
+
 const members = ref([]);
 const adminMembers = ref([]);
 const busy = ref(false);
@@ -133,12 +163,15 @@ function signOut() {
     events.value = [];
     members.value = [];
     adminMembers.value = [];
+    memberProfile.value = null;
     tab.value = 'Feed';
     signingUp.value = false;
   });
 }
 
 watch(tab, () => {
+  memberProfile.value = null;
+  profileOrigins.length = 0;
   error.value = '';
   if (content.value) content.value.scrollTop = 0;
   if (me.value?.approved && tab.value !== 'Profile') run(updateFeed);
@@ -260,7 +293,7 @@ function resetCalendar() {
     </header>
 
     <main ref="content" class="overflow-auto overscroll-y-contain pt-[19px] pb-7">
-      <div class="mx-auto w-full max-w-[580px] px-5 max-[360px]:px-3.5">
+      <div class="mx-auto w-full px-5 max-[360px]:px-3.5" :class="memberProfile ? 'max-w-[960px]' : 'max-w-[580px]'">
         <p v-if="error" class="mb-3.5 rounded-xl bg-danger-wash px-4 py-3.5 text-sm leading-[1.45] text-danger" role="alert">{{ error }}</p>
         <p v-if="!ready" class="text-[13px] leading-[1.4] text-muted" role="status">Lago Nostre wird geöffnet…</p>
 
@@ -289,11 +322,36 @@ function resetCalendar() {
           </div>
         </section>
 
+        <section v-else-if="memberProfile" aria-label="Mitgliederprofil">
+          <AppButton variant="plain" class="mb-4 !pl-0" @click="closeMember"><Icon name="prev" /> Zurück</AppButton>
+          <div class="mb-6 flex items-center gap-3.5">
+            <AppAvatar :name="memberProfile.name" :photo="memberProfile.photo" large />
+            <h1 tabindex="-1" class="wrap-anywhere">{{ memberProfile.name }}</h1>
+          </div>
+          <div class="mb-5 flex gap-2" aria-label="Terminauswahl">
+            <AppButton v-for="choice in [{ id: 'own', label: 'Eigene Termine' }, { id: 'all', label: 'Alle Termine' }]" :key="choice.id"
+              :variant="profileTab === choice.id ? 'primary' : 'soft'" :aria-pressed="profileTab === choice.id" @click="profileTab = choice.id">{{ choice.label }}</AppButton>
+          </div>
+          <p class="text-[13px] text-muted">Termine, auf die du Zugriff hast.</p>
+          <div class="grid grid-cols-3 gap-2 sm:gap-4">
+            <button v-for="event in profileEvents" :key="event.id" class="flex min-w-0 flex-col overflow-hidden rounded-xl bg-panel text-left hover:bg-control" @click="showEvent(event)">
+              <img v-if="event.photo" :src="event.photo" alt="" loading="lazy" class="aspect-square w-full object-cover">
+              <div v-else class="grid aspect-square w-full shrink-0 place-content-center bg-wash text-center text-on-wash"><span class="text-2xl font-bold">{{ event.date.slice(8) }}</span><span class="text-xs">{{ labelDate(event.date, { month: 'short' }) }}</span></div>
+              <div class="p-2 sm:p-3">
+                <strong class="block text-sm leading-snug wrap-anywhere sm:text-lg">{{ event.title }}</strong>
+                <span class="mt-1 block text-xs text-muted wrap-anywhere">{{ labelDate(event.date, { day: 'numeric', month: 'short' }) }} · {{ event.time }}</span>
+                <span v-if="event.cancelled" class="mt-1 block text-xs text-danger">Abgesagt</span>
+              </div>
+            </button>
+          </div>
+          <p v-if="!profileEvents.length" class="rounded-xl bg-wash px-4 py-3.5 text-sm text-on-wash" role="status">{{ profileTab === 'own' ? 'Keine eigenen Termine für dich sichtbar.' : 'Keine Termine für dich sichtbar.' }}</p>
+        </section>
+
         <template v-else-if="tab === 'Feed'">
           <h1>Deine Übersicht</h1>
           <p class="mt-0 mb-5 text-sm leading-[1.45] text-muted">Pläne mit der Lago-Gruppe</p>
           <p v-if="!events.length" class="rounded-xl bg-wash px-4 py-3.5 text-sm leading-[1.45] text-on-wash">Hier erscheinen deine Termine und Einladungen.</p>
-          <EventCard v-for="event in events" :key="event.id" :event="event" :busy="busy" :label-date="labelDate" @open="showEvent" @respond="rsvp" />
+          <EventCard v-for="event in events" :key="event.id" :event="event" :busy="busy" :label-date="labelDate" @open="showEvent" @respond="rsvp" @profile="showHost" />
         </template>
 
         <template v-else-if="tab === 'Calendar'">
@@ -368,14 +426,14 @@ function resetCalendar() {
 
       <template v-if="sheet === 'details' && current">
         <img v-if="current.photo" class="block h-[clamp(190px,52vw,305px)] w-full bg-wash object-cover" :src="current.photo" alt="">
-        <p class="text-[13px] leading-[1.4] text-muted">Organisiert von {{ current.host }}<span v-if="current.cancelled" class="ml-auto inline-block rounded-lg bg-danger-wash px-2 py-[5px] text-xs font-bold text-danger">Abgesagt</span></p>
+        <p class="text-[13px] leading-[1.4] text-muted">Organisiert von <button type="button" class="min-h-11 underline underline-offset-2" @click="showHost(current)">{{ current.host }}</button><span v-if="current.cancelled" class="ml-auto inline-block rounded-lg bg-danger-wash px-2 py-[5px] text-xs font-bold text-danger">Abgesagt</span></p>
         <div class="flex flex-wrap items-center gap-1.5 text-[13px] leading-[1.4] text-muted [&_svg]:size-[15px]"><Icon name="calendar" /> {{ labelDate(current.date) }} · {{ current.time }} Schweizer Zeit</div>
         <div v-if="current.place" class="flex flex-wrap items-center gap-1.5 text-[13px] leading-[1.4] text-muted [&_svg]:size-[15px]"><Icon name="pin" /> {{ current.place }}</div>
         <p v-if="current.note" class="whitespace-pre-wrap wrap-anywhere">{{ current.note }}</p>
         <h3 class="mt-6 mb-2 text-[17px] font-bold tracking-[-.02em]">Gäste</h3>
         <p v-if="!current.guests.length" class="text-[13px] leading-[1.4] text-muted">Derzeit sind keine Mitglieder eingeladen.</p>
         <ul v-else class="mt-4 mb-[18px] list-none p-0 [&_li]:flex [&_li]:justify-between [&_li]:gap-2 [&_li]:border-b [&_li]:border-line [&_li]:py-2.5">
-          <li v-for="guest in current.guests" :key="guest.id"><span>{{ guest.name }}</span><span class="text-[13px] leading-[1.4] text-muted">{{ responseLabel(guest.status) }}</span></li>
+          <li v-for="guest in current.guests" :key="guest.id"><button type="button" class="min-h-11 text-left hover:underline" @click="showMember(guest)">{{ guest.name }}</button><span class="text-[13px] leading-[1.4] text-muted">{{ responseLabel(guest.status) }}</span></li>
         </ul>
         <div v-if="current.mine && !current.cancelled" class="flex flex-wrap items-center gap-2">
           <AppButton variant="primary" :disabled="busy" @click="editEvent(current)">Termin bearbeiten</AppButton>

@@ -225,7 +225,7 @@ app.get('/api/events', async req => {
   return rows.map(({ host_id, people, groups, starts_at, ...event }) => {
     const start = DateTime.fromJSDate(starts_at, { zone });
     return {
-      ...event, date: start.toISODate(), time: start.toFormat('HH:mm'),
+      ...event, host_id, date: start.toISODate(), time: start.toFormat('HH:mm'),
       ...(event.mine ? { people, groups } : {})
     };
   });

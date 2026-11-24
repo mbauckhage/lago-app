@@ -30,6 +30,9 @@ The header reserves the device’s top safe area in addition to its normal heigh
 
 ## Frontend implementation
 
+Clicking a host’s name or avatar on an event card, or a host or guest name in event details, opens a full-page member profile with a back button at the top left. «Eigene Termine» shows events hosted by that member; «Alle Termine» also includes their invitations (including declined and unanswered invitations). Both tabs use a three-column grid, including on mobile, with compact tiles that open event details. Profiles only show events the viewing member can already access. Back restores the previous view and scroll position, including event details when opened from there. Profile settings remain in the main Profile navigation tab.
+
+
 In Profile, «In Kalender-App öffnen» opens the member’s private subscription URL using the `webcal://` scheme so compatible devices can hand it to their calendar app for subscription confirmation. The link always uses the current calendar token, including after a reset. Devices without a compatible handler can still copy the HTTPS link and add it manually. Opening the link does not confirm that a subscription was created.
 
 Profile photos have an inline circular crop preview. Members can choose a new image or edit their saved photo, adjust zoom and horizontal/vertical position, and cancel their changes. Saving the profile stores the selected square crop (up to 512 × 512 pixels); avatars display it as a circle. Removing a photo restores initials. Invalid images block saving until replaced or cancelled.
