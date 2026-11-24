@@ -333,7 +333,6 @@ function resetCalendar() {
             <p class="text-[13px] leading-[1.4] text-muted">Push informiert dich über neue Einladungen, Terminänderungen und Absagen. E-Mail-Benachrichtigungen sind noch nicht verfügbar.</p>
             <FormField checkbox><input name="email_updates" type="checkbox" :checked="me.email_updates"> E-Mail-Benachrichtigungen</FormField>
             <FormField checkbox><input name="push_updates" type="checkbox" :checked="me.push_updates"> Push-Benachrichtigungen</FormField>
-            <PushSettings />
             <AppButton variant="primary" class="mt-2.5" :disabled="busy" type="submit">Änderungen speichern</AppButton>
           </form>
           <section class="mt-[22px] border-t border-line pt-3.5 [&_h2]:mt-0">
@@ -352,6 +351,7 @@ function resetCalendar() {
             <AppButton variant="plain" :disabled="busy" @click="signOut">Abmelden</AppButton>
           </div>
         </template>
+        <PushSettings v-if="ready && me?.approved" :key="me.id" :account-id="me.id" :enabled="me.push_updates" :profile="tab === 'Profile'" />
       </div>
     </main>
 
