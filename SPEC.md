@@ -20,7 +20,9 @@ New events use Europe/Zurich time. The feed shows newest posts first. Group invi
 
 **Platform.** Mobile-first web app with home-screen installation on supported browsers. The app uses Vue with Vite, Fastify and PostgreSQL. Railway is configured with separate test and production environments, each with its own database.
 
-The home-screen icon and browser favicon use the classic Lago wordmark in poppy red on deep blue. Home-screen installation uses the PNG icons in the web app manifest or the Apple touch icon on iOS. In Railway’s test environment, the home-screen icon and browser favicon add a larger, tilted “Test” label above the wordmark.
+On mobile, the page stays at its initial scale: pinch and double-tap gestures do not zoom the whole interface. Horizontal and vertical touch scrolling remain available.
+
+The home-screen icon and browser favicon use the classic Lago wordmark in warm coral (#F29B85) on deep lake blue (#233F50). Home-screen installation uses the PNG icons in the web app manifest or the Apple touch icon on iOS. In Railway’s test environment, the home-screen icon and browser favicon add a larger, tilted “Test” label above the wordmark.
 
 A fresh tab or standalone app session plays the transparent lakeside GIF once on the same deep lake-blue background (#233F50) as the app while account data loads. The opening can be skipped as soon as the app is ready. Reloading or resuming the same session skips the intro. Slow startup loads can show the same GIF while waiting. Event notification links go straight to the requested event when ready, and reduced-motion users see a text loading state.
 
