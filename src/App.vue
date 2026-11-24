@@ -415,7 +415,9 @@ function resetCalendar() {
           <AppButton variant="plain" class="mb-4 !pl-0" @click="settingsOpen = false"><Icon name="prev" /> Zurück</AppButton>
           <h1>Einstellungen</h1>
           <div class="my-5 flex items-center gap-3.5">
-            <AppAvatar :name="me.name" :photo="me.photo" large />
+            <button type="button" class="rounded-full cursor-pointer focus-visible:outline-2 focus-visible:outline-brand focus-visible:outline-offset-3 disabled:cursor-default disabled:opacity-50" aria-label="Profilfoto ändern" title="Profilfoto ändern" :disabled="busy" @click="profilePhoto?.choosePhoto()">
+              <AppAvatar :name="me.name" :photo="me.photo" large />
+            </button>
             <strong>{{ me.name }}</strong>
           </div>
           <form @submit.prevent="saveProfile($event.currentTarget)">

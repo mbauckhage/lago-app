@@ -4,6 +4,10 @@ import AppButton from './ui/AppButton.vue';
 import { readPhoto } from '../photos.js';
 
 const props = defineProps({ photo: String, disabled: Boolean });
+const fileInput = ref(null);
+function choosePhoto() {
+  if (!props.disabled) fileInput.value?.click();
+}
 const source = ref('');
 const image = ref(null);
 const zoom = ref(1);
@@ -71,15 +75,13 @@ async function getPhoto() {
   if (!blob) throw new Error('Das Foto konnte nicht gespeichert werden.');
   return readPhoto(blob);
 }
-defineExpose({ getPhoto, reset });
+defineExpose({ getPhoto, reset, choosePhoto });
 </script>
 
 <template>
   <fieldset class="my-4 min-w-0 border-0 p-0" :disabled="disabled">
-    <legend class="mb-2 text-[13px] font-bold">Profilfoto</legend>
-    <label class="grid gap-2 text-[13px]">{{ photo ? 'Anderes Bild auswählen' : 'Bild auswählen' }}
-      <input type="file" accept="image/jpeg,image/png,image/webp" @change="select">
-    </label>
+    <legend class="sr-only">Profilfoto</legend>
+    <input ref="fileInput" type="file" class="hidden" aria-label="Profilfoto auswählen" accept="image/jpeg,image/png,image/webp" @change="select">
     <div v-if="image" class="mt-4 grid max-w-sm gap-3">
       <div class="relative mx-auto size-48 overflow-hidden rounded-full bg-wash" role="img" aria-label="Vorschau des Profilfoto-Ausschnitts">
         <img :src="source" alt="" class="absolute" :style="previewStyle">
