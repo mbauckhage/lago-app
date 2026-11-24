@@ -32,6 +32,8 @@ The header reserves the device’s top safe area in addition to its normal heigh
 
 In Profile, «In Kalender-App öffnen» opens the member’s private subscription URL using the `webcal://` scheme so compatible devices can hand it to their calendar app for subscription confirmation. The link always uses the current calendar token, including after a reset. Devices without a compatible handler can still copy the HTTPS link and add it manually. Opening the link does not confirm that a subscription was created.
 
+Profile photos have an inline circular crop preview. Members can choose a new image or edit their saved photo, adjust zoom and horizontal/vertical position, and cancel their changes. Saving the profile stores the selected square crop (up to 512 × 512 pixels); avatars display it as a circle. Removing a photo restores initials. Invalid images block saving until replaced or cancelled.
+
 The event editor’s title image field uses a full-width dotted-outline image selector with a centred image icon. Clicking it or activating its file input with the keyboard opens the image picker. Selected images appear as a preview with an option to choose another image; existing covers are previewed when editing.
 
 Event covers and profile photos accept JPEG, PNG and WebP files. Before saving, the browser converts files larger than 1 MiB to WebP, reducing the longest edge to at most 1920 pixels, then lowering quality and dimensions until the result fits within 1 MiB. Browsers without WebP encoding use PNG and reduce dimensions instead. Smaller files remain unchanged. Aspect ratio and transparency are preserved. Unreadable or unconvertible images show an error without saving the form; the server continues enforcing its image payload limit.

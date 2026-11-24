@@ -4,6 +4,7 @@ import { DateTime } from 'luxon';
 import { readPhoto } from './photos.js';
 import Icon from './Icon.vue';
 import ImageSelector from './components/ImageSelector.vue';
+import ProfilePhoto from './components/ProfilePhoto.vue';
 import PushSettings from './components/PushSettings.vue';
 import AppButton from './components/ui/AppButton.vue';
 import AppSheet from './components/ui/AppSheet.vue';
@@ -22,6 +23,7 @@ const tabs = { Feed: 'Übersicht', Calendar: 'Kalender', Profile: 'Profil' };
 const zone = 'Europe/Zurich';
 const today = () => DateTime.now().setZone(zone);
 const me = ref(null);
+const profilePhoto = ref(null);
 const ready = ref(false);
 const signingUp = ref(false);
 const tab = ref('Feed');
@@ -211,13 +213,12 @@ function moveMonth(step) {
 function saveProfile(form) {
   const fields = new FormData(form);
   return run(async () => {
-    const photo = await readPhoto(fields.get('photo')) ?? (fields.has('remove_photo') ? '' : undefined);
+    const photo = await profilePhoto.value.getPhoto();
     me.value = await api('/me', 'PATCH', {
       name: fields.get('name'), photo,
       email_updates: fields.has('email_updates'), push_updates: fields.has('push_updates')
     });
-    form.elements.photo.value = '';
-    if (form.elements.remove_photo) form.elements.remove_photo.checked = false;
+    profilePhoto.value.reset();
     announce('Profil gespeichert');
     await updateFeed();
   });
@@ -327,8 +328,7 @@ function resetCalendar() {
           </div>
           <form @submit.prevent="saveProfile($event.currentTarget)">
             <FormField>Anzeigename<input name="name" :value="me.name" maxlength="35" required></FormField>
-            <FormField>Profilfoto<input name="photo" type="file" accept="image/jpeg,image/png,image/webp"></FormField>
-            <FormField v-if="me.photo" checkbox><input name="remove_photo" type="checkbox"> Profilfoto entfernen</FormField>
+            <ProfilePhoto ref="profilePhoto" :photo="me.photo" :disabled="busy" />
             <h2 class="mt-6 mb-2 text-[17px] font-bold tracking-[-.02em]">Benachrichtigungen</h2>
             <p class="text-[13px] leading-[1.4] text-muted">Push informiert dich über neue Einladungen, Terminänderungen und Absagen. E-Mail-Benachrichtigungen sind noch nicht verfügbar.</p>
             <FormField checkbox><input name="email_updates" type="checkbox" :checked="me.email_updates"> E-Mail-Benachrichtigungen</FormField>
