@@ -1,9 +1,11 @@
 <script setup>
-import { computed, nextTick, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { DateTime } from 'luxon';
 import { readPhoto } from './photos.js';
+import openingGif from './assets/lago-opening.gif';
+import headerGif from './assets/lago-header.gif';
 import Icon from './Icon.vue';
-import { memberEvents } from './member-events.js';
+import MemberProfile from './components/MemberProfile.vue';
 import ImageSelector from './components/ImageSelector.vue';
 import ProfilePhoto from './components/ProfilePhoto.vue';
 import PushSettings from './components/PushSettings.vue';
@@ -26,12 +28,44 @@ const today = () => DateTime.now().setZone(zone);
 const me = ref(null);
 const profilePhoto = ref(null);
 const ready = ref(false);
+const requestedEvent = Number(new URLSearchParams(location.search).get('event'));
+let firstOpening = true;
+try {
+  firstOpening = !sessionStorage.getItem('lago.opened');
+  sessionStorage.setItem('lago.opened', '1');
+} catch { /* Storage can be unavailable in private browsing. */ }
+
+const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
+const playingIntro = ref(firstOpening && !requestedEvent && !reducedMotion.matches);
+const slowStartup = ref(false);
+const showOpening = computed(() => playingIntro.value || (!ready.value && slowStartup.value));
+let playbackTimer;
+let loadingTimer;
+
+function finishIntro() {
+  clearTimeout(playbackTimer);
+  playingIntro.value = false;
+}
+
+function startPlaybackTimer() {
+  if (playingIntro.value) playbackTimer = setTimeout(finishIntro, 16500);
+}
+
+function motionChanged() {
+  if (reducedMotion.matches) finishIntro();
+}
+onUnmounted(() => {
+  clearTimeout(playbackTimer);
+  clearTimeout(loadingTimer);
+  reducedMotion.removeEventListener('change', motionChanged);
+});
 const signingUp = ref(false);
 const tab = ref('Feed');
 const events = ref([]);
 const memberProfile = ref(null);
 const profileTab = ref('own');
-const profileEvents = computed(() => memberEvents(events.value, memberProfile.value?.id, profileTab.value));
+const settingsOpen = ref(false);
+const displayedProfile = computed(() => memberProfile.value ?? (tab.value === 'Profile' && !settingsOpen.value ? me.value : null));
 const profileOrigins = [];
 
 async function showMember(person) {
@@ -128,14 +162,21 @@ async function loadAccount() {
   }
   if (me.value?.approved) {
     await updateFeed();
-    const requested = Number(new URLSearchParams(location.search).get('event'));
-    if (events.value.some(event => event.id === requested)) { eventId.value = requested; await openSheet('details'); }
+
   }
 }
 
 onMounted(async () => {
+  reducedMotion.addEventListener('change', motionChanged);
+  loadingTimer = setTimeout(() => { slowStartup.value = true; }, 400);
   await run(loadAccount);
+  clearTimeout(loadingTimer);
   ready.value = true;
+  if (error.value) finishIntro();
+  if (events.value.some(event => event.id === requestedEvent)) {
+    eventId.value = requestedEvent;
+    await openSheet('details');
+  }
 });
 
 function authenticate(form) {
@@ -171,10 +212,12 @@ function signOut() {
 
 watch(tab, () => {
   memberProfile.value = null;
+  settingsOpen.value = false;
+  profileTab.value = 'own';
   profileOrigins.length = 0;
   error.value = '';
   if (content.value) content.value.scrollTop = 0;
-  if (me.value?.approved && tab.value !== 'Profile') run(updateFeed);
+  if (me.value?.approved) run(updateFeed);
 });
 
 async function openSheet(name) {
@@ -284,8 +327,20 @@ function resetCalendar() {
 </script>
 
 <template>
-  <div class="grid h-dvh grid-rows-[auto_minmax(0,1fr)_auto]">
-    <header class="border-b border-line bg-surface">
+  <main v-if="showOpening" class="grid h-dvh place-content-center justify-items-center bg-surface px-4 text-ink">
+    <div role="status" class="grid justify-items-center">
+      <img :src="openingGif" alt="" width="880" height="328" class="w-[min(92vw,610px)] motion-reduce:hidden"
+        @load="startPlaybackTimer" @error="finishIntro">
+      <span class="mt-3 text-sm">Lago Nostre wird geöffnet…</span>
+    </div>
+    <button v-if="playingIntro && ready" type="button"
+      class="mt-4 min-h-11 rounded-xl bg-panel px-4 text-[13px] font-medium text-muted hover:bg-control hover:text-ink"
+      @click="finishIntro">Überspringen</button>
+  </main>
+  <div v-else class="grid h-dvh grid-rows-[auto_minmax(0,1fr)_auto]">
+    <header class="relative isolate overflow-hidden border-b border-line bg-surface">
+      <img :src="headerGif" alt="" width="880" height="328"
+        class="pointer-events-none absolute inset-0 -z-10 h-full w-full object-cover object-[center_65%] opacity-30 motion-reduce:hidden">
       <div class="app-header-content mx-auto w-full max-w-[580px] px-5 max-[360px]:px-3.5 flex items-center justify-between pb-2 [&_button]:flex [&_button]:items-center [&_button]:gap-[5px]">
         <span class="flex items-center gap-2 text-[25px] font-[780] tracking-[-.04em]">Lago Nostre</span>
         <AppButton variant="primary" v-if="me?.approved"  :disabled="busy" @click="editEvent()"><Icon name="plus" /> Neuer Termin</AppButton>
@@ -293,7 +348,7 @@ function resetCalendar() {
     </header>
 
     <main ref="content" class="overflow-auto overscroll-y-contain pt-[19px] pb-7">
-      <div class="mx-auto w-full px-5 max-[360px]:px-3.5" :class="memberProfile ? 'max-w-[960px]' : 'max-w-[580px]'">
+      <div class="mx-auto w-full px-5 max-[360px]:px-3.5" :class="displayedProfile ? 'max-w-[960px]' : 'max-w-[580px]'">
         <p v-if="error" class="mb-3.5 rounded-xl bg-danger-wash px-4 py-3.5 text-sm leading-[1.45] text-danger" role="alert">{{ error }}</p>
         <p v-if="!ready" class="text-[13px] leading-[1.4] text-muted" role="status">Lago Nostre wird geöffnet…</p>
 
@@ -322,30 +377,8 @@ function resetCalendar() {
           </div>
         </section>
 
-        <section v-else-if="memberProfile" aria-label="Mitgliederprofil">
-          <AppButton variant="plain" class="mb-4 !pl-0" @click="closeMember"><Icon name="prev" /> Zurück</AppButton>
-          <div class="mb-6 flex items-center gap-3.5">
-            <AppAvatar :name="memberProfile.name" :photo="memberProfile.photo" large />
-            <h1 tabindex="-1" class="wrap-anywhere">{{ memberProfile.name }}</h1>
-          </div>
-          <div class="mb-5 flex gap-2" aria-label="Terminauswahl">
-            <AppButton v-for="choice in [{ id: 'own', label: 'Eigene Termine' }, { id: 'all', label: 'Alle Termine' }]" :key="choice.id"
-              :variant="profileTab === choice.id ? 'primary' : 'soft'" :aria-pressed="profileTab === choice.id" @click="profileTab = choice.id">{{ choice.label }}</AppButton>
-          </div>
-          <p class="text-[13px] text-muted">Termine, auf die du Zugriff hast.</p>
-          <div class="grid grid-cols-3 gap-2 sm:gap-4">
-            <button v-for="event in profileEvents" :key="event.id" class="flex min-w-0 flex-col overflow-hidden rounded-xl bg-panel text-left hover:bg-control" @click="showEvent(event)">
-              <img v-if="event.photo" :src="event.photo" alt="" loading="lazy" class="aspect-square w-full object-cover">
-              <div v-else class="grid aspect-square w-full shrink-0 place-content-center bg-wash text-center text-on-wash"><span class="text-2xl font-bold">{{ event.date.slice(8) }}</span><span class="text-xs">{{ labelDate(event.date, { month: 'short' }) }}</span></div>
-              <div class="p-2 sm:p-3">
-                <strong class="block text-sm leading-snug wrap-anywhere sm:text-lg">{{ event.title }}</strong>
-                <span class="mt-1 block text-xs text-muted wrap-anywhere">{{ labelDate(event.date, { day: 'numeric', month: 'short' }) }} · {{ event.time }}</span>
-                <span v-if="event.cancelled" class="mt-1 block text-xs text-danger">Abgesagt</span>
-              </div>
-            </button>
-          </div>
-          <p v-if="!profileEvents.length" class="rounded-xl bg-wash px-4 py-3.5 text-sm text-on-wash" role="status">{{ profileTab === 'own' ? 'Keine eigenen Termine für dich sichtbar.' : 'Keine Termine für dich sichtbar.' }}</p>
-        </section>
+        <MemberProfile v-else-if="displayedProfile" :person="displayedProfile" :events="events" v-model:selected-tab="profileTab"
+          :own="!memberProfile" :label-date="labelDate" @back="closeMember" @settings="settingsOpen = true" @open="showEvent" />
 
         <template v-else-if="tab === 'Feed'">
           <h1>Deine Übersicht</h1>
@@ -379,7 +412,8 @@ function resetCalendar() {
         </template>
 
         <template v-else>
-          <h1>Profil</h1>
+          <AppButton variant="plain" class="mb-4 !pl-0" @click="settingsOpen = false"><Icon name="prev" /> Zurück</AppButton>
+          <h1>Einstellungen</h1>
           <div class="my-5 flex items-center gap-3.5">
             <AppAvatar :name="me.name" :photo="me.photo" large />
             <strong>{{ me.name }}</strong>
@@ -409,13 +443,13 @@ function resetCalendar() {
             <AppButton variant="plain" :disabled="busy" @click="signOut">Abmelden</AppButton>
           </div>
         </template>
-        <PushSettings v-if="ready && me?.approved" :key="me.id" :account-id="me.id" :enabled="me.push_updates" :profile="tab === 'Profile'" />
+        <PushSettings v-if="ready && me?.approved" :key="me.id" :account-id="me.id" :enabled="me.push_updates" :profile="tab === 'Profile' && settingsOpen && !memberProfile" />
       </div>
     </main>
 
     <nav v-if="me?.approved" class="border-t border-line bg-surface pb-[env(safe-area-inset-bottom)]" aria-label="Hauptnavigation">
       <div class="mx-auto w-full max-w-[580px] px-5 max-[360px]:px-3.5 flex min-h-[68px] items-center justify-around">
-        <AppTab v-for="(label, name) in tabs" :key="name" :active="tab === name" :icon="name.toLowerCase()" @click="tab = name">{{ label }}</AppTab>
+        <AppTab v-for="(label, name) in tabs" :key="name" :active="tab === name" :icon="name.toLowerCase()" @click="tab = name; if (name === 'Profile') { settingsOpen = false; memberProfile = null; profileOrigins.length = 0; }">{{ label }}</AppTab>
       </div>
     </nav>
 

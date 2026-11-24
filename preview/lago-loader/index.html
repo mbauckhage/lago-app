@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="de-CH"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>LagoNostre · Ladeanimation</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#b9dfeb;color:#233f50;font:14px system-ui,sans-serif}main{min-height:100svh;display:grid;place-content:center;justify-items:center}svg{width:min(610px,94vw);height:auto;overflow:visible}p{text-align:center;font-size:12px;letter-spacing:.03em;margin:12px 0 0}
+</style>
+<main><svg viewBox="0 0 440 164" role="img" aria-label="Schloss Rapperswil und die Badi am See. Fünf Freundinnen plaudern, ein Junge schreibt am Ufer, zwei Rennvelos fahren vorbei und der Fotograf fotografiert den Rückwärtssalto.">
+<defs><clipPath id="land"><rect x="8" y="-20" width="424" height="167"/></clipPath></defs>
+<g clip-path="url(#land)">
+<g id="peaks"><path fill="#95bdcb" d="m68 148 82-88 30 36 62-85 87 106 37-44 58 75z"/><path fill="#f2f7f3" d="m215 48 27-37 30 37-16-9-8 7-9-15-9 17-5-7z"/><path fill="#adcfd8" d="m148 148 56-72 18 21 50-59 92 110z"/><path fill="#f6f8f1" d="m254 60 18-22 19 23-15-7-6 6-5-8z"/></g>
+<g id="hills"><path fill="#80b798" d="M12 149q63-91 127-48t109 2q52-44 125 45z"/><path fill="#589981" d="M18 149q41-56 88-58t102 58z"/></g>
+<g id="behindCastle"></g>
+<g id="castle"><path fill="#dbbf8f" d="M66 112V78h73v34z"/><path fill="#cf573f" d="m64 79 10-15h57l11 15z"/><path fill="#ebd7af" d="M55 109V64h19v45zm72 2V54h20v57z"/><path fill="#a64137" d="m51 65 13-23 14 23zm72-10 14-25 14 25z"/><path fill="#475b5d" d="M62 75h4v6h-4zm73-13h4v6h-4zm-54 22h4v7h-4zm13 0h4v7h-4zm13 0h4v7h-4zm12 0h4v7h-4z"/><path fill="#507f68" d="M42 121q51-28 100-13l26 15z"/></g>
+<g id="badi"><path fill="#347fa5" d="M283 145q28-16 50-14t52-4q27-4 44 0v22H282z"/><path fill="#ba7850" d="M274 127h60v5h-60zm6 5h4v14h-4zm44 0h4v13h-4z"/><path fill="#476371" d="M316 123h25v3h-25z"/><path stroke="#775843" stroke-width="2" d="M298 127v-22"/><path fill="#e15745" d="M280 107q17-22 36 0z"/><path fill="#fff0cf" d="M292 107q5-17 10 0z"/></g>
+<g id="cast"></g>
+</g>
+<rect x="7" y="146" width="426" height="10" rx="5" fill="#faf8e9"/><rect x="11" y="149" width="418" height="4" rx="2" fill="#435a62"/></svg><p>LagoNostre lädt …</p></main>
+<script>
+const $=id=>document.getElementById(id);
+const clamp=x=>Math.min(1,Math.max(0,x));
+const ease=x=>{x=clamp(x);return x*x*(3-2*x)};
+const ink='#293844',skin='#f4c7a0',brown='#724329',blond='#e9bd62';
+const path=(d,color,width=1.5)=>`<path d="${d}" fill="none" stroke="${color}" stroke-width="${width}" stroke-linecap="round" stroke-linejoin="round"/>`;
+const shape=(d,color)=>`<path d="${d}" fill="${color}"/>`;
+const dot=(x,y,r,color)=>`<circle cx="${x}" cy="${y}" r="${r}" fill="${color}"/>`;
+const group=(transform,body)=>`<g transform="${transform}">${body}</g>`;
+const place=(x,y,body,scale=1)=>group(`translate(${x} ${y}) scale(${scale})`,body);
+const glasses=color=>[-2,2].map(x=>`<circle cx="${x}" cy="0" r="1.7" fill="none" stroke="${color}" stroke-width="1.15"/>`).join('')+path('M-.4 0h.8',color,1);
+function head(hair,cut,detail=''){
+ let locks=shape('M-4.8 0q-1-7 4-6l4-1-1 2 3 1-2 2-3-1-4 3z',hair);
+ if(cut==='long')locks=shape('M-5 5q-1-4 0-9 3-5 8-2 3 2 2 10l-2-1V-2Q0-4-2-2l-1 7z',hair);
+ if(cut==='flowing')locks=shape('M-6 10q2-5 1-12 0-6 6-5 6 0 5 8l1 7-4-1V-2q-2 2-5 2 1 6-1 11z',hair);
+ if(cut==='curly')locks=[[-4,0],[-4,-3],[-2,-5],[1,-5],[4,-4],[5,-1]].map(([x,y])=>dot(x,y,2.3,hair)).join('');
+ return dot(0,0,4.7,skin)+locks+dot(2.4,.4,.55,ink)+detail;
+}
+const walkers=[
+ {cut:'short',hair:brown,shirt:'#2d5f83',size:1.05,sign:true},
+ {cut:'curly',hair:brown,shirt:'#e56c54',size:.84},
+ {cut:'long',hair:blond,shirt:'#487c9a',size:.89},
+ {cut:'long',hair:'#50352f',shirt:'#78578e',size:1.15,thin:true},
+ {cut:'long',hair:brown,shirt:'#457c6c',size:1},
+ {cut:'flowing',hair:'#43291f',shirt:'#eaa367',size:.81,thin:true,leopard:true}
+];
+const shield=path('M6-12v-17',brown)+shape('M-9-41h32v10l-16 5-16-5z','#283f52')+'<text x="7" y="-32" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-weight="bold" font-size="9" fill="#fff7dd">Klevic</text>';
+function walker(w,t){
+ const s=Math.sin(t),stride=4.5*s;
+ let legs='';
+ for(const side of [-1,1]){
+ const x=side*stride,y=-Math.max(0,side*Math.cos(t))*2;
+ legs+=path(`M0-9 Q${x+1} -5 ${x} ${y}`,ink);
+ if(w.leopard)legs+=path(`M${x-1} ${y}h4`,'#dcac61',3)+dot(x,y-.3,.8,brown)+dot(x+2,y+.3,.7,ink);
+ }
+
+ return legs+shape(`M-2-17h4l${w.thin?1:2} 8h-${w.thin?6:8}z`,w.shirt)+path(`M0-15l${-stride} 6`,ink)+(w.sign?shield+path('M1-15l3 4 3-3',ink):path(`M0-15l${stride} 5`,ink))+place(0,-21,head(w.hair,w.cut));
+}
+function bike(t,small){
+ const jersey=small?'#195db9':'#aa594e',rim='#344751';
+ let parts='';
+ for(const x of [-10,12]){
+ parts+=dot(x,-5,6,rim)+dot(x,-5,4.8,'#d7e6df')+group(`rotate(${t*150} ${x} -5)`,path(`M${x-4}-5h8m-4-4v8`,'#a6b9b7',.8));
+ }
+ parts+=path('M-10-5l6-9 5 9h-11l17-9 5 9m-5-9-1-3h4q4 0 1 3',small?'#cf4b3f':'#205f7d',1.4)+path('M-7-15h5',ink,2);
+ const pedal=Math.sin(t*8);
+ parts+=path(`M-4-15l7 4 ${-2-2*pedal} ${6-2*pedal}`,ink,2)+path(`M-4-15l4 7 ${1+2*pedal} ${3+2*pedal}`,ink,2);
+ parts+=shape('M-6-15l6-9 6 3-7 8z',jersey)+path('M3-21l2 5 5-1',ink);
+ if(small)parts+=shape('M-5-17l6 2-2 4-7-2z','#174ea6')+dot(0,-19,3.5,'#ffe047')+path('M-2-18l4-2','#de3c39',1);
+ return parts+place(5,-26,head(small?brown:'#9a683e','short',small?'':glasses('#ff4999')));
+}
+function photographer(t){
+ const flash=Math.max(0,1-Math.abs(t-4.7)*8,1-Math.abs(t-7.2)*8,1-Math.abs(t-9.95)*8);
+ const camera=shape('M1-2h6v5H0v-5zm6 1 3-1v5L7 2z',ink)+dot(4,0,1.3,'#88b6c2');
+ return path('M0-9l-4 9m4-9 4 9',ink,2)+shape('M-3-17h5l2 9h-8z',ink)+place(0,-21,head(blond,'short',shape('M-4 2q4 3 8-1-1 7-6 4z','#bf9250')+glasses(ink)))+path('M-2-15l4 3 4-7M2-15l5-4',ink)+place(3,-19,camera)+`<g opacity="${flash}">${place(15,-20,shape('M0-5l1 3 4-1-2 3 3 2-4 0-1 4-2-4-3 1 2-4-2-2 4 1z','#fffbe5'))}</g>`;
+}
+const mix=(a,b,k)=>a+(b-a)*k;
+const fade=(opacity,art)=>`<g opacity="${opacity}">${art}</g>`;
+function canoe(t){
+ const elapsed=t-3.4;
+ if(elapsed<0)return '';
+ const stroke=Math.sin(t*3);
+ const paddle=group(`rotate(${stroke*31} 2 -7)`,path('M6-16l-8 20',brown,1.5)+shape('M-3 0l3 1-2 6-3-1z','#dba14f'));
+ const boy=shape('M-4-10h5l3 10h-10z','#d88042')+place(-1,-14,head('#53392d','short'));
+ return place(456-90*(1-Math.exp(-elapsed/3.2)),136+.5*Math.cos(t*3),group('scale(-1 1)',path('M-24 4h10m30 0h8','#a3d6df',1)+boy+shape('M-22-4q18 6 42-1-4 10-22 9-16 0-20-8z','#aa5337')+path('M-21-4q16 5 40 0','#eeb974',2)+paddle+path('M-2-9l4 4 3-5',ink)));
+}
+function writer(t){
+ const stroke=Math.max(0,Math.sin(t*1.7))*Math.sin(t*13);
+ const notebook=shape('M2-8l6 1 6-3 1 6-7 3-7-2z','#fff2d3')+path('M8-7v6',brown,.7);
+ const hand=6+stroke*1.3;
+ return place(278,143,shape('M-10 0q1-8 10-7l5 7z','#83968c')+path('M-3-6l8 2 4 4h4',ink,2)+shape('M-5-15l5-1 3 10-8 1z','#088687')+group('rotate(15 -2 -19)',place(-2,-19,head('#513a30','short')))+notebook+path('M-4-12l3 6 4 0',ink)+path(`M0-13l3 4 ${hand-3} 2`,ink)+path(`M${hand} -6l3-5`,'#dc9229',1.5));
+}
+const chatSpots=[[182,125],[168,119],[154,122],[143,134],[172,137]];
+function spectators(t){
+ return walkers.slice(1).map((w,i)=>{
+ const arrival=ease((t-4.55-i*.14)/1.65);
+ const [spotX,spotY]=chatSpots[i];
+ const x=mix(56+30*t-(i+1)*14,spotX,arrival),y=mix(128,spotY,arrival);
+ const turn=Math.floor(t*1.2)%5===i;
+ const lift=turn?Math.sin(t*10)*2:0;
+ const arms=path(`M-1-15l-3 5 2 2M1-15l4 2 3 ${turn?-4+lift:2}`,ink);
+ const shoes=w.leopard?path('M-4 0h3m3 0h3','#dcac61',3)+dot(-3,0,.8,brown)+dot(4,0,.8,brown):'';
+ const chatting=path('M0-9l-3 9m3-9 3 9',ink)+shoes+shape('M-2-17h4l1.5 8h-7z',w.shirt)+arms+place(0,-21,group(`rotate(${turn?lift*2:3})`,head(w.hair,w.cut)));
+ const facing=spotX>164?-1:1;
+ return place(x,y,fade(1-arrival,walker(w,t*6+i))+fade(arrival,group(`scale(${facing} 1)`,chatting)),w.size);
+ }).join('');
+}
+const release=2.6;
+function airborneShield(t){
+ const progress=(t-release)/1.35;
+ if(progress<0||progress>=1)return '';
+ const x=mix(56+30*release,98,progress);
+ const y=128+5*progress-290*progress*(1-progress);
+ return place(x,y,group(`rotate(${-260*progress} 7 -33)`,shield),walkers[0].size);
+}
+function cast(t){
+ const takeoff=9.3, j=clamp((t-takeoff)/1.3);
+ const leader=walkers[0];
+ const x=t<takeoff?56+30*t:335+28*j;
+ const y=128-5*ease((t-7)/2.3)+21*j-165*j*(1-j);
+ const jumpingPose=path('M0-15l5-1 2-4M0-15l-5-2-2-4M0-9l5 2-2 4M0-9l-4 3 3 4',ink)+shape('M-2-17h4l2 8h-8z',leader.shirt)+place(0,-21,head(brown,'short'));
+ const tuck=ease(j/.22)*(1-ease((j-.72)/.22));
+ const body=fade(1-tuck,walker({...leader,sign:t<release},t*6))+fade(tuck,jumpingPose);
+ const diver=fade(1-ease((j-.94)/.06),place(x,y,group(`rotate(${-360*ease(j)} 0 -12)`,body),leader.size));
+ const thrown=t<release+.675?airborneShield(t):'';
+ const water=clamp((t-takeoff-1.24)/.72);
+ const splash=fade(Math.sin(Math.PI*water),place(363,144,path('M-5-2l-5-6m11 4 2-8m3 10 6-4','#fffbea',2.7),.5+water*1.5));
+ return canoe(t)+spectators(t)+thrown+diver+place(254,131,photographer(t),1.08)+place(535-55*t,145,group('scale(-1 1)',bike(t,true)),.86)+place(580-55*t,145,group('scale(-1 1)',bike(t,false)),1.08)+writer(t)+splash;
+}
+function draw(t){
+ const end=1-ease((t-15.35)/.85);
+ for(const [id,start] of [['peaks',0],['hills',.22],['castle',.55],['badi',.85]]){
+ const k=ease((t-start)/.85)*end;
+ $(id).setAttribute('transform',`translate(0 ${147*(1-k)}) scale(1 ${k})`);
+ }
+ $('behindCastle').innerHTML=t>=release+.675?airborneShield(t):'';
+ $('cast').innerHTML=cast(t);
+ $('cast').setAttribute('opacity',ease((t-1.35)/.45)*(1-ease((t-14.85)/.55)));
+}
+const reduced=matchMedia('(prefers-reduced-motion: reduce)');
+function frame(ms){draw(reduced.matches?6.8:ms/1000%16.5);if(!reduced.matches)requestAnimationFrame(frame)}
+reduced.addEventListener('change',()=>requestAnimationFrame(frame));
+requestAnimationFrame(frame);
+</script></html>

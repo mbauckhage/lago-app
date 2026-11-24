@@ -2,18 +2,18 @@
 
 @theme {
   --font-sans: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
-  --color-surface: #0d0e10;
-  --color-panel: #181a1e;
-  --color-control: #292c31;
-  --color-ink: #faf8f5;
-  --color-muted: #bfc1c8;
-  --color-brand: #ff626d;
-  --color-on-brand: #260b10;
-  --color-wash: #111f62;
-  --color-on-wash: #e2e9ff;
-  --color-line: #62656e;
-  --color-danger: #ff626d;
-  --color-danger-wash: #3b1d23;
+  --color-surface: #233f50;
+  --color-panel: #2d4c5e;
+  --color-control: #395766;
+  --color-ink: #f2f7f3;
+  --color-muted: #d0dedf;
+  --color-brand: #f29b85;
+  --color-on-brand: #35241f;
+  --color-wash: #385e70;
+  --color-on-wash: #c4e5ee;
+  --color-line: #547180;
+  --color-danger: #ffc0b2;
+  --color-danger-wash: #533b41;
   --animate-sheet-enter: sheet-enter .22s cubic-bezier(.2,.8,.2,1) both;
   @keyframes sheet-enter {
     from { transform: translateY(14px); opacity: .6; }
@@ -35,7 +35,7 @@
 
 .app-header-content {
   --status-bar-clearance: 0px;
-  min-height: calc(66px + env(safe-area-inset-top, 0px) + var(--status-bar-clearance));
+  min-height: calc(80px + env(safe-area-inset-top, 0px) + var(--status-bar-clearance));
   padding-top: calc(8px + env(safe-area-inset-top, 0px) + var(--status-bar-clearance));
 }
 

@@ -5,8 +5,8 @@
   "short_name": "Lago Nostre",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0d0e10",
-  "theme_color": "#0d0e10",
+  "background_color": "#233f50",
+  "theme_color": "#233f50",
   "icons": [
     { "src": "/lago-192.png", "sizes": "192x192", "type": "image/png" },
     { "src": "/lago-512.png", "sizes": "512x512", "type": "image/png" }
