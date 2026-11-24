@@ -1,7 +1,8 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import AppButton from './ui/AppButton.vue';
 const props = defineProps({ accountId: Number, enabled: Boolean, profile: Boolean });
+const emit = defineEmits(['occupied']);
 const onboarding = ref(false);
 const promptKey = `lago-push-prompt:${props.accountId}`;
 function dismiss() {
@@ -16,6 +17,7 @@ const permission = ref(typeof Notification === 'undefined' ? 'default' : Notific
 const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 const installed = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
 const supported = window.isSecureContext && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+watch([loading, busy, onboarding], () => emit('occupied', loading.value || busy.value || onboarding.value), { immediate: true });
 let registration;
 let publicKey;
 const message = computed(() => {

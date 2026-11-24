@@ -8,6 +8,7 @@ import Icon from './Icon.vue';
 import MemberProfile from './components/MemberProfile.vue';
 import ImageSelector from './components/ImageSelector.vue';
 import ProfilePhoto from './components/ProfilePhoto.vue';
+import InstallApp from './components/InstallApp.vue';
 import PushSettings from './components/PushSettings.vue';
 import AppButton from './components/ui/AppButton.vue';
 import AppSheet from './components/ui/AppSheet.vue';
@@ -17,6 +18,8 @@ import FormField from './components/ui/FormField.vue';
 import EventCard from './components/events/EventCard.vue';
 import RsvpControls from './components/events/RsvpControls.vue';
 
+const installApp = ref(null);
+const pushOccupied = ref(true);
 const groups = ['Lago Nostre', 'Lago Plus'];
 const responseLabels = { Going: 'Dabei', Maybe: 'Vielleicht', Declined: 'Abgesagt' };
 const responseLabel = status => responseLabels[status] ?? 'Antwort ausstehend';
@@ -381,7 +384,7 @@ function resetCalendar() {
           :own="!memberProfile" :label-date="labelDate" @back="closeMember" @settings="settingsOpen = true" @open="showEvent" />
 
         <template v-else-if="tab === 'Feed'">
-          <h1>Deine Übersicht</h1>
+          <h1 data-install-focus tabindex="-1">Deine Übersicht</h1>
           <p class="mt-0 mb-5 text-sm leading-[1.45] text-muted">Pläne mit der Lago-Gruppe</p>
           <p v-if="!events.length" class="rounded-xl bg-wash px-4 py-3.5 text-sm leading-[1.45] text-on-wash">Hier erscheinen deine Termine und Einladungen.</p>
           <EventCard v-for="event in events" :key="event.id" :event="event" :busy="busy" :label-date="labelDate" @open="showEvent" @respond="rsvp" @profile="showHost" />
@@ -429,6 +432,11 @@ function resetCalendar() {
             <FormField checkbox><input name="push_updates" type="checkbox" :checked="me.push_updates"> Push-Benachrichtigungen</FormField>
             <AppButton variant="primary" class="mt-2.5" :disabled="busy" type="submit">Änderungen speichern</AppButton>
           </form>
+          <section class="mt-[22px] border-t border-line pt-3.5">
+            <h2 class="mb-2 text-[17px] font-bold">Lago als App</h2>
+            <p class="text-[13px] leading-[1.4] text-muted">Öffne deine Pläne direkt über den Home-Bildschirm.</p>
+            <AppButton variant="soft" @click="installApp.open()">Zum Startbildschirm hinzufügen</AppButton>
+          </section>
           <section class="mt-[22px] border-t border-line pt-3.5 [&_h2]:mt-0">
             <h2 class="mt-6 mb-2 text-[17px] font-bold tracking-[-.02em]">Persönlicher Kalender</h2>
             <p class="text-[13px] leading-[1.4] text-muted">Öffne deine Kalender-App und bestätige das Abo. Es enthält Termine, die du organisierst, sowie Einladungen, auf die du mit «Dabei» oder «Vielleicht» antwortest.</p>
@@ -445,7 +453,7 @@ function resetCalendar() {
             <AppButton variant="plain" :disabled="busy" @click="signOut">Abmelden</AppButton>
           </div>
         </template>
-        <PushSettings v-if="ready && me?.approved" :key="me.id" :account-id="me.id" :enabled="me.push_updates" :profile="tab === 'Profile' && settingsOpen && !memberProfile" />
+        <PushSettings v-if="ready && me?.approved" :key="me.id" @occupied="pushOccupied = $event" :account-id="me.id" :enabled="me.push_updates" :profile="tab === 'Profile' && settingsOpen && !memberProfile" />
       </div>
     </main>
 
@@ -523,4 +531,5 @@ function resetCalendar() {
     </AppSheet>
     <div class="pointer-events-none fixed bottom-[calc(79px+env(safe-area-inset-bottom))] left-1/2 z-2 -translate-x-1/2 whitespace-nowrap rounded-[20px] bg-ink px-[15px] py-[9px] text-[13px] font-bold text-surface empty:p-0" role="status">{{ notice }}</div>
   </div>
+  <InstallApp ref="installApp" :eligible="ready && !!me?.approved && !showOpening && !busy && !error && !pushOccupied && tab === 'Feed' && !memberProfile" />
 </template>
