@@ -41,6 +41,7 @@ const month = ref(today().startOf('month'));
 const day = ref('');
 const calendarUrl = computed(() => me.value?.calendar_token
   ? new URL('/calendar/' + me.value.calendar_token + '.ics', location.origin).href : '');
+const calendarAppUrl = computed(() => calendarUrl.value.replace(/^https?:/, 'webcal:'));
 const current = computed(() => events.value.find(event => event.id === eventId.value));
 const monthEvents = computed(() => events.value.filter(event => event.date.startsWith(month.value.toFormat('yyyy-MM')))
   .sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time)));
@@ -337,7 +338,9 @@ function resetCalendar() {
           </form>
           <section class="mt-[22px] border-t border-line pt-3.5 [&_h2]:mt-0">
             <h2 class="mt-6 mb-2 text-[17px] font-bold tracking-[-.02em]">Persönlicher Kalender</h2>
-            <p class="text-[13px] leading-[1.4] text-muted">Füge diesen privaten Link in deiner Kalender-App als Abo hinzu. Er enthält Termine, die du organisierst, sowie Einladungen, auf die du mit «Dabei» oder «Vielleicht» antwortest.</p>
+            <p class="text-[13px] leading-[1.4] text-muted">Öffne deine Kalender-App und bestätige das Abo. Es enthält Termine, die du organisierst, sowie Einladungen, auf die du mit «Dabei» oder «Vielleicht» antwortest.</p>
+            <a :href="calendarAppUrl" class="inline-flex min-h-11 items-center rounded-xl bg-brand px-[13px] text-[13px] font-bold text-on-brand focus-visible:outline-2 focus-visible:outline-brand focus-visible:outline-offset-3">In Kalender-App öffnen</a>
+            <p class="text-[13px] leading-[1.4] text-muted">Falls sich keine Kalender-App öffnet, kopiere den Link und füge ihn dort als Kalenderabo hinzu.</p>
             <FormField>Privater Kalenderlink<input :value="calendarUrl" readonly @focus="$event.target.select()"></FormField>
             <div class="flex flex-wrap items-center gap-2">
               <AppButton variant="soft" :disabled="busy" @click="run(async () => { await navigator.clipboard.writeText(calendarUrl); announce('Kalenderlink kopiert'); })">Link kopieren</AppButton>
