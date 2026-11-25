@@ -30,6 +30,8 @@ A fresh tab or standalone app session plays the transparent lakeside GIF once on
 
 The header title follows the active tab. Übersicht and Chat show «Lago Nostre», Kalender shows «Kalender», and Profil shows «Profil». Each tab starts directly with its content, without a separate tab title or introductory subtitle.
 
+All pages and scrollable areas, including chat histories and dialogs, use a thin, muted blue-grey scrollbar with a transparent track.
+
 In Übersicht, event cards progressively blur and fade into the surface color as they scroll beneath the fixed header.
 
 The header displays the lakeside GIF as a decorative backdrop at 30% opacity behind the title and event button. The GIF holds its final frame for an extra five seconds between loops. The backdrop is hidden when reduced motion is requested. The header reserves the device’s top safe area in addition to its 80px base height and padding. Installed standalone apps add another 16px of top clearance so the title and actions sit below the iOS system status-bar blur. The clearance stays within the app viewport, preserving the bottom navigation and scrollable content area.

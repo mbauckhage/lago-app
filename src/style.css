@@ -22,6 +22,10 @@
 }
 
 @layer base {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-line) transparent;
+  }
   html { touch-action: pan-x pan-y; }
   :root { @apply font-sans text-ink bg-surface accent-brand; font-synthesis: none; color-scheme: dark; }
   ::selection { @apply bg-wash text-on-wash; }
