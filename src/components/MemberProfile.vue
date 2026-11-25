@@ -11,6 +11,8 @@ const emit = defineEmits(['back', 'settings', 'open', 'update:selectedTab']);
 const visibleEvents = computed(() => memberEvents(props.events, props.person.id, props.selectedTab));
 const tabGroup = useId();
 const tabs = [{ id: 'own', label: 'Eigene Termine' }, { id: 'all', label: 'Alle Termine' }];
+const categoryLabels = { core: 'core', ad_on: 'Ad on', circle: 'circle' };
+const categoryColors = { core: 'bg-red-500', ad_on: 'bg-blue-500', circle: 'bg-green-500' };
 
 let swipeStart = null;
 
@@ -55,6 +57,9 @@ function navigateTabs(event, index) {
         <Icon name="settings" /><span class="hidden sm:inline">Einstellungen</span>
       </AppButton>
     </div>
+    <p v-if="person.category" class="-mt-4 mb-4 flex items-center gap-2 text-sm text-muted"><span aria-hidden="true" class="size-2.5 shrink-0 rounded-full" :class="categoryColors[person.category]"></span>{{ categoryLabels[person.category] }}</p>
+    <p class="-mt-4 mb-5 text-sm text-muted">Geburtstag · {{ person.birthday ? labelDate(person.birthday, { day: 'numeric', month: 'long', year: 'numeric' }) : 'Noch nicht angegeben' }}</p>
+    <p v-if="person.nicknames?.length" class="-mt-4 mb-5 text-sm text-muted">Spitznamen · {{ person.nicknames.join(', ') }}</p>
     <div class="flex-1 touch-[pan-y_pinch-zoom]" @touchstart.passive="startSwipe" @touchend="finishSwipe" @touchcancel="swipeStart = null">
       <div role="tablist" aria-label="Terminauswahl" class="flex gap-0 border-b border-line sm:gap-6">
         <button v-for="(tab, index) in tabs" :id="`${tabGroup}-${tab.id}`" :key="tab.id" type="button"

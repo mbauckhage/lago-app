@@ -21,6 +21,7 @@ import EventChat from './components/EventChat.vue';
 import UnreadBadge from './components/UnreadBadge.vue';
 import EventCard from './components/events/EventCard.vue';
 import RsvpControls from './components/events/RsvpControls.vue';
+import Crew from './components/Crew.vue';
 
 const installApp = ref(null);
 const pushOccupied = ref(true);
@@ -30,7 +31,7 @@ const responseLabels = { Going: 'Dabei', Maybe: 'Vielleicht', Declined: 'Abgesag
 const responseLabel = status => responseLabels[status] ?? 'Antwort ausstehend';
 const locale = 'de-CH';
 const weekdays = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
-const tabs = { Feed: 'Übersicht', Chat: 'Chat', Calendar: 'Kalender', Profile: 'Profil' };
+const tabs = { Feed: 'Übersicht', Chat: 'Chat', Calendar: 'Kalender', Crew: 'Crew', Profile: 'Profil' };
 const zone = 'Europe/Zurich';
 const today = () => DateTime.now().setZone(zone);
 const me = ref(null);
@@ -70,7 +71,7 @@ onUnmounted(() => {
 });
 const signingUp = ref(false);
 const tab = ref('Feed');
-const headerTitle = computed(() => me.value?.approved && ['Calendar', 'Profile'].includes(tab.value) ? tabs[tab.value] : 'Lago Nostre');
+const headerTitle = computed(() => me.value?.approved && ['Calendar', 'Crew', 'Profile'].includes(tab.value) ? tabs[tab.value] : 'Lago Nostre');
 const events = ref([]);
 const chatId = ref(null);
 const chatEvent = computed(() => events.value.find(event => event.id === chatId.value));
@@ -345,6 +346,7 @@ async function promptCalendarSubscription() {
 
 watch(tab, () => {
   if (tab.value === 'Calendar') void promptCalendarSubscription();
+  if (tab.value === 'Crew' && me.value?.approved) run(async () => { members.value = await api('/members'); });
   memberProfile.value = null;
   settingsOpen.value = false;
   profileTab.value = 'own';
@@ -432,10 +434,11 @@ function moveMonth(step) {
 
 function saveProfile(form) {
   const fields = new FormData(form);
+  const nicknames = String(fields.get('nicknames') || '').split(/\r?\n/).map(value => value.trim()).filter(Boolean);
   return run(async () => {
     const photo = await profilePhoto.value.getPhoto();
     me.value = await api('/me', 'PATCH', {
-      name: fields.get('name'), photo,
+      name: fields.get('name'), photo, birthday: fields.get('birthday'), nicknames,
       email_updates: fields.has('email_updates'), push_updates: fields.has('push_updates')
     });
     profilePhoto.value.reset();
@@ -453,9 +456,11 @@ function openAdmin() {
 
 function saveMember(person, form) {
   const selected = new FormData(form).getAll('groups');
+  const category = new FormData(form).get('category') || null;
   return run(async () => {
-    await api('/admin/members/' + person.id, 'PATCH', { approved: true, groups: selected });
+    await api('/admin/members/' + person.id, 'PATCH', { approved: true, groups: selected, category });
     adminMembers.value = await api('/admin/members');
+    if (person.id === me.value.id) me.value = await api('/me');
     await updateFeed();
     announce(person.approved ? 'Gruppen aktualisiert' : 'Mitglied freigegeben');
   }, sheetError);
@@ -573,6 +578,10 @@ function resetCalendar() {
           <p v-if="!calendarEvents.length" class="text-[13px] leading-[1.4] text-muted">{{ day ? 'Keine Termine an diesem Tag.' : 'Keine Termine in diesem Monat.' }}</p>
         </template>
 
+        <template v-else-if="tab === 'Crew'">
+          <Crew :members="members" :scroll-root="content" @open="showMember" />
+        </template>
+
         <template v-else>
           <AppButton variant="plain" class="mb-4 !pl-0" @click="settingsOpen = false"><Icon name="prev" /> Zurück</AppButton>
           <h1>Einstellungen</h1>
@@ -584,6 +593,10 @@ function resetCalendar() {
           </div>
           <form @submit.prevent="saveProfile($event.currentTarget)">
             <FormField>Anzeigename<input name="name" :value="me.name" maxlength="35" required></FormField>
+            <FormField>Geburtstag<input name="birthday" type="date" autocomplete="bday" :max="today().toISODate()" :value="me.birthday || ''"></FormField>
+            <p class="-mt-1 text-[13px] leading-[1.4] text-muted">Das vollständige Datum sehen alle freigegebenen Mitglieder unter «Crew».</p>
+            <FormField>Spitznamen<textarea name="nicknames" rows="3" maxlength="740" :value="(me.nicknames || []).join('\n')" placeholder="Ein Spitzname pro Zeile"></textarea></FormField>
+            <p class="-mt-1 text-[13px] leading-[1.4] text-muted">Ein Spitzname pro Zeile. Freigegebene Mitglieder sehen sie in deinem Profil.</p>
             <ProfilePhoto ref="profilePhoto" :photo="me.photo" :disabled="busy" />
             <h2 class="mt-6 mb-2 text-[17px] font-bold tracking-[-.02em]">Benachrichtigungen</h2>
             <p class="text-[13px] leading-[1.4] text-muted">Push informiert dich über neue Chatnachrichten, Einladungen, Terminänderungen und Absagen. E-Mail-Benachrichtigungen sind noch nicht verfügbar.</p>
@@ -690,8 +703,9 @@ function resetCalendar() {
         <form v-for="person in adminMembers" :key="person.id" class="border-b border-line py-3.5 wrap-anywhere" @submit.prevent="saveMember(person, $event.currentTarget)">
           <strong>{{ person.name }}</strong>
           <div class="text-[13px] leading-[1.4] text-muted">{{ person.email }} · {{ person.approved ? 'Freigegeben' : 'Freigabe ausstehend' }}{{ person.admin ? ' · Admin' : '' }}</div>
+          <FormField>Kategorie<select name="category" :value="person.category || ''"><option value="">Nicht zugewiesen</option><option value="core">core · Rot</option><option value="ad_on">Ad on · Blau</option><option value="circle">circle · Grün</option></select></FormField>
           <FormField v-for="group in groups" :key="group" checkbox><input name="groups" type="checkbox" :value="group" :checked="person.groups.includes(group)"> {{ group }}</FormField>
-          <AppButton variant="primary" class="mt-2.5" :disabled="busy" type="submit">{{ person.approved ? 'Gruppen speichern' : 'Mitglied freigeben' }}</AppButton>
+          <AppButton variant="primary" class="mt-2.5" :disabled="busy" type="submit">{{ person.approved ? 'Änderungen speichern' : 'Mitglied freigeben' }}</AppButton>
         </form>
       </template>
 

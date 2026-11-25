@@ -10,6 +10,8 @@ import { promisify } from 'node:util';
 import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
+pg.types.setTypeParser(pg.types.builtins.DATE, value => value);
+
 if (!process.env.DATABASE_URL) throw new Error('Set DATABASE_URL to your PostgreSQL connection URL.');
 const db = new pg.Pool({ connectionString: process.env.DATABASE_URL });
 const app = Fastify({ bodyLimit: 1_500_000, logger: { serializers: {
@@ -98,8 +100,8 @@ async function member(req, access = 'approved') {
 }
 
 function account(user) {
-  const { id, name, approved, admin, photo, email_updates, push_updates, calendar_prompt_seen, calendar_token } = user;
-  return { id, name, approved, admin, photo, email_updates, push_updates, calendar_prompt_seen, calendar_token: approved ? calendar_token : null };
+  const { id, name, approved, admin, photo, birthday, nicknames, category, email_updates, push_updates, calendar_prompt_seen, calendar_token } = user;
+  return { id, name, approved, admin, photo, birthday, nicknames, category, email_updates, push_updates, calendar_prompt_seen, calendar_token: approved ? calendar_token : null };
 }
 
 const deliver = await setupPush(app, db, member, invalid);
@@ -162,14 +164,25 @@ app.get('/api/me', async req => account(await member(req, 'signed-in')));
 
 app.patch('/api/me', async req => {
   const user = await member(req);
-  const { name, photo, email_updates, push_updates } = req.body ?? {};
+  const { name, photo, birthday: submittedBirthday, nicknames: submittedNicknames, email_updates, push_updates } = req.body ?? {};
+  const hasBirthday = Object.hasOwn(req.body ?? {}, 'birthday');
+  const hasNicknames = Object.hasOwn(req.body ?? {}, 'nicknames');
   const displayName = clean(name);
+  const birthday = clean(submittedBirthday);
+  const nicknames = Array.isArray(submittedNicknames) ? submittedNicknames.map(clean).filter(Boolean) : null;
   if (!displayName || displayName.length > 35) throw invalid('Gib einen Anzeigenamen mit höchstens 35 Zeichen ein.');
+  if (hasBirthday && submittedBirthday != null && typeof submittedBirthday !== 'string') throw invalid('Gib ein gültiges Geburtsdatum aus der Vergangenheit ein.');
+  if (birthday && (!/^\d{4}-\d{2}-\d{2}$/.test(birthday) || !DateTime.fromISO(birthday, { zone: 'UTC' }).isValid || birthday > DateTime.now().setZone(zone).toISODate())) {
+    throw invalid('Gib ein gültiges Geburtsdatum aus der Vergangenheit ein.');
+  }
+  if (hasNicknames && (!nicknames || nicknames.length > 20 || nicknames.some(nickname => nickname.length > 35) || new Set(nicknames.map(nickname => nickname.toLocaleLowerCase('de-CH'))).size !== nicknames.length)) {
+    throw invalid('Gib höchstens 20 verschiedene Spitznamen mit je maximal 35 Zeichen ein.');
+  }
   validatePhoto(photo);
   if (typeof email_updates !== 'boolean' || typeof push_updates !== 'boolean') throw invalid('Wähle deine Benachrichtigungseinstellungen.');
   const { rows: [updated] } = await db.query(
-    'UPDATE members SET name=$1,photo=coalesce($2,photo),email_updates=$3,push_updates=$4 WHERE id=$5 RETURNING *',
-    [displayName, photo, email_updates, push_updates, user.id]
+    'UPDATE members SET name=$1,photo=coalesce($2,photo),birthday=CASE WHEN $3 THEN $4::date ELSE birthday END,nicknames=CASE WHEN $5 THEN $6::text[] ELSE nicknames END,email_updates=$7,push_updates=$8 WHERE id=$9 RETURNING *',
+    [displayName, photo, hasBirthday, birthday || null, hasNicknames, nicknames, email_updates, push_updates, user.id]
   );
   return account(updated);
 });
@@ -188,7 +201,7 @@ app.post('/api/me/calendar', async req => {
 
 app.get('/api/members', async req => {
   const user = await member(req);
-  const { rows } = await db.query(`SELECT m.id,m.name,
+  const { rows } = await db.query(`SELECT m.id,m.name,m.photo,m.birthday,m.nicknames,m.category,
     ARRAY(SELECT gm.group_name FROM group_members gm
       JOIN group_members own ON own.group_name=gm.group_name AND own.member_id=$1
       WHERE gm.member_id=m.id ORDER BY gm.group_name) AS groups
@@ -198,7 +211,7 @@ app.get('/api/members', async req => {
 
 app.get('/api/admin/members', async req => {
   await member(req, 'admin');
-  const { rows } = await db.query(`SELECT m.id,m.name,m.email,m.approved,m.admin,
+  const { rows } = await db.query(`SELECT m.id,m.name,m.email,m.approved,m.admin,m.category,
     ARRAY(SELECT group_name FROM group_members WHERE member_id=m.id ORDER BY group_name) AS groups
     FROM members m ORDER BY approved,name,id`);
   return rows;
@@ -207,14 +220,15 @@ app.get('/api/admin/members', async req => {
 app.patch('/api/admin/members/:id', async req => {
   await member(req, 'admin');
   const id = Number(req.params.id);
-  const { approved, groups: selected } = req.body ?? {};
-  if (!validId(id) || approved !== true || !Array.isArray(selected) || !selected.every(group => groups.includes(group))) {
-    throw invalid('Wähle ein Konto und gültige Gruppen.');
+  const { approved, groups: selected, category } = req.body ?? {};
+  const hasCategory = Object.hasOwn(req.body ?? {}, 'category');
+  if (!validId(id) || approved !== true || !Array.isArray(selected) || !selected.every(group => groups.includes(group)) || (hasCategory && ![null, 'core', 'ad_on', 'circle'].includes(category))) {
+    throw invalid('Wähle ein Konto, eine gültige Kategorie und gültige Gruppen.');
   }
   const client = await db.connect();
   try {
     await client.query('BEGIN');
-    const result = await client.query('UPDATE members SET approved=true WHERE id=$1', [id]);
+    const result = await client.query('UPDATE members SET approved=true,category=CASE WHEN $2 THEN $3 ELSE category END WHERE id=$1', [id, hasCategory, category ?? null]);
     if (!result.rowCount) throw error(404, 'Dieses Konto ist nicht verfügbar.');
     await client.query('DELETE FROM group_members WHERE member_id=$1', [id]);
     await client.query('INSERT INTO group_members SELECT unnest($1::text[]), $2', [[...new Set(selected)], id]);
