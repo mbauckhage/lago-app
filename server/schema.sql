@@ -13,6 +13,8 @@ CREATE TABLE IF NOT EXISTS members (
 
 ALTER TABLE members ADD COLUMN IF NOT EXISTS calendar_prompt_seen boolean NOT NULL DEFAULT false;
 ALTER TABLE members ADD COLUMN IF NOT EXISTS birthday date;
+ALTER TABLE members ADD COLUMN IF NOT EXISTS nicknames text[] NOT NULL DEFAULT '{}';
+ALTER TABLE members ADD COLUMN IF NOT EXISTS category text CHECK (category IN ('core', 'ad_on', 'circle'));
 
 CREATE TABLE IF NOT EXISTS sessions (
   token text PRIMARY KEY,
