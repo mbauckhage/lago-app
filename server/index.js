@@ -10,6 +10,8 @@ import { promisify } from 'node:util';
 import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
+pg.types.setTypeParser(pg.types.builtins.DATE, value => value);
+
 if (!process.env.DATABASE_URL) throw new Error('Set DATABASE_URL to your PostgreSQL connection URL.');
 const db = new pg.Pool({ connectionString: process.env.DATABASE_URL });
 const app = Fastify({ bodyLimit: 1_500_000, logger: { serializers: {
@@ -98,8 +100,8 @@ async function member(req, access = 'approved') {
 }
 
 function account(user) {
-  const { id, name, approved, admin, photo, email_updates, push_updates, calendar_prompt_seen, calendar_token } = user;
-  return { id, name, approved, admin, photo, email_updates, push_updates, calendar_prompt_seen, calendar_token: approved ? calendar_token : null };
+  const { id, name, approved, admin, photo, birthday, email_updates, push_updates, calendar_prompt_seen, calendar_token } = user;
+  return { id, name, approved, admin, photo, birthday, email_updates, push_updates, calendar_prompt_seen, calendar_token: approved ? calendar_token : null };
 }
 
 const deliver = await setupPush(app, db, member, invalid);
@@ -162,14 +164,20 @@ app.get('/api/me', async req => account(await member(req, 'signed-in')));
 
 app.patch('/api/me', async req => {
   const user = await member(req);
-  const { name, photo, email_updates, push_updates } = req.body ?? {};
+  const { name, photo, birthday: submittedBirthday, email_updates, push_updates } = req.body ?? {};
+  const hasBirthday = Object.hasOwn(req.body ?? {}, 'birthday');
   const displayName = clean(name);
+  const birthday = clean(submittedBirthday);
   if (!displayName || displayName.length > 35) throw invalid('Gib einen Anzeigenamen mit höchstens 35 Zeichen ein.');
+  if (hasBirthday && submittedBirthday != null && typeof submittedBirthday !== 'string') throw invalid('Gib ein gültiges Geburtsdatum aus der Vergangenheit ein.');
+  if (birthday && (!/^\d{4}-\d{2}-\d{2}$/.test(birthday) || !DateTime.fromISO(birthday, { zone: 'UTC' }).isValid || birthday > DateTime.now().setZone(zone).toISODate())) {
+    throw invalid('Gib ein gültiges Geburtsdatum aus der Vergangenheit ein.');
+  }
   validatePhoto(photo);
   if (typeof email_updates !== 'boolean' || typeof push_updates !== 'boolean') throw invalid('Wähle deine Benachrichtigungseinstellungen.');
   const { rows: [updated] } = await db.query(
-    'UPDATE members SET name=$1,photo=coalesce($2,photo),email_updates=$3,push_updates=$4 WHERE id=$5 RETURNING *',
-    [displayName, photo, email_updates, push_updates, user.id]
+    'UPDATE members SET name=$1,photo=coalesce($2,photo),birthday=CASE WHEN $3 THEN $4::date ELSE birthday END,email_updates=$5,push_updates=$6 WHERE id=$7 RETURNING *',
+    [displayName, photo, hasBirthday, birthday || null, email_updates, push_updates, user.id]
   );
   return account(updated);
 });
@@ -188,7 +196,7 @@ app.post('/api/me/calendar', async req => {
 
 app.get('/api/members', async req => {
   const user = await member(req);
-  const { rows } = await db.query(`SELECT m.id,m.name,
+  const { rows } = await db.query(`SELECT m.id,m.name,m.photo,m.birthday,
     ARRAY(SELECT gm.group_name FROM group_members gm
       JOIN group_members own ON own.group_name=gm.group_name AND own.member_id=$1
       WHERE gm.member_id=m.id ORDER BY gm.group_name) AS groups

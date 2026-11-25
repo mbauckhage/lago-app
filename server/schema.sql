@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS members (
 );
 
 ALTER TABLE members ADD COLUMN IF NOT EXISTS calendar_prompt_seen boolean NOT NULL DEFAULT false;
+ALTER TABLE members ADD COLUMN IF NOT EXISTS birthday date;
 
 CREATE TABLE IF NOT EXISTS sessions (
   token text PRIMARY KEY,

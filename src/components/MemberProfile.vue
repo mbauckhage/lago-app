@@ -55,6 +55,7 @@ function navigateTabs(event, index) {
         <Icon name="settings" /><span class="hidden sm:inline">Einstellungen</span>
       </AppButton>
     </div>
+    <p class="-mt-4 mb-5 text-sm text-muted">Geburtstag · {{ person.birthday ? labelDate(person.birthday, { day: 'numeric', month: 'long', year: 'numeric' }) : 'Noch nicht angegeben' }}</p>
     <div class="flex-1 touch-[pan-y_pinch-zoom]" @touchstart.passive="startSwipe" @touchend="finishSwipe" @touchcancel="swipeStart = null">
       <div role="tablist" aria-label="Terminauswahl" class="flex gap-0 border-b border-line sm:gap-6">
         <button v-for="(tab, index) in tabs" :id="`${tabGroup}-${tab.id}`" :key="tab.id" type="button"

@@ -21,6 +21,7 @@ import EventChat from './components/EventChat.vue';
 import UnreadBadge from './components/UnreadBadge.vue';
 import EventCard from './components/events/EventCard.vue';
 import RsvpControls from './components/events/RsvpControls.vue';
+import Crew from './components/Crew.vue';
 
 const installApp = ref(null);
 const pushOccupied = ref(true);
@@ -30,7 +31,7 @@ const responseLabels = { Going: 'Dabei', Maybe: 'Vielleicht', Declined: 'Abgesag
 const responseLabel = status => responseLabels[status] ?? 'Antwort ausstehend';
 const locale = 'de-CH';
 const weekdays = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
-const tabs = { Feed: 'Übersicht', Chat: 'Chat', Calendar: 'Kalender', Profile: 'Profil' };
+const tabs = { Feed: 'Übersicht', Chat: 'Chat', Calendar: 'Kalender', Crew: 'Crew', Profile: 'Profil' };
 const zone = 'Europe/Zurich';
 const today = () => DateTime.now().setZone(zone);
 const me = ref(null);
@@ -70,7 +71,7 @@ onUnmounted(() => {
 });
 const signingUp = ref(false);
 const tab = ref('Feed');
-const headerTitle = computed(() => me.value?.approved && ['Calendar', 'Profile'].includes(tab.value) ? tabs[tab.value] : 'Lago Nostre');
+const headerTitle = computed(() => me.value?.approved && ['Calendar', 'Crew', 'Profile'].includes(tab.value) ? tabs[tab.value] : 'Lago Nostre');
 const events = ref([]);
 const chatId = ref(null);
 const chatEvent = computed(() => events.value.find(event => event.id === chatId.value));
@@ -345,6 +346,7 @@ async function promptCalendarSubscription() {
 
 watch(tab, () => {
   if (tab.value === 'Calendar') void promptCalendarSubscription();
+  if (tab.value === 'Crew' && me.value?.approved) run(async () => { members.value = await api('/members'); });
   memberProfile.value = null;
   settingsOpen.value = false;
   profileTab.value = 'own';
@@ -435,7 +437,7 @@ function saveProfile(form) {
   return run(async () => {
     const photo = await profilePhoto.value.getPhoto();
     me.value = await api('/me', 'PATCH', {
-      name: fields.get('name'), photo,
+      name: fields.get('name'), photo, birthday: fields.get('birthday'),
       email_updates: fields.has('email_updates'), push_updates: fields.has('push_updates')
     });
     profilePhoto.value.reset();
@@ -573,6 +575,10 @@ function resetCalendar() {
           <p v-if="!calendarEvents.length" class="text-[13px] leading-[1.4] text-muted">{{ day ? 'Keine Termine an diesem Tag.' : 'Keine Termine in diesem Monat.' }}</p>
         </template>
 
+        <template v-else-if="tab === 'Crew'">
+          <Crew :members="members" :scroll-root="content" @open="showMember" />
+        </template>
+
         <template v-else>
           <AppButton variant="plain" class="mb-4 !pl-0" @click="settingsOpen = false"><Icon name="prev" /> Zurück</AppButton>
           <h1>Einstellungen</h1>
@@ -584,6 +590,8 @@ function resetCalendar() {
           </div>
           <form @submit.prevent="saveProfile($event.currentTarget)">
             <FormField>Anzeigename<input name="name" :value="me.name" maxlength="35" required></FormField>
+            <FormField>Geburtstag<input name="birthday" type="date" autocomplete="bday" :max="today().toISODate()" :value="me.birthday || ''"></FormField>
+            <p class="-mt-1 text-[13px] leading-[1.4] text-muted">Das vollständige Datum sehen alle freigegebenen Mitglieder unter «Crew».</p>
             <ProfilePhoto ref="profilePhoto" :photo="me.photo" :disabled="busy" />
             <h2 class="mt-6 mb-2 text-[17px] font-bold tracking-[-.02em]">Benachrichtigungen</h2>
             <p class="text-[13px] leading-[1.4] text-muted">Push informiert dich über neue Chatnachrichten, Einladungen, Terminänderungen und Absagen. E-Mail-Benachrichtigungen sind noch nicht verfügbar.</p>
