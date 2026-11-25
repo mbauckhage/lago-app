@@ -60,6 +60,21 @@ test('live invitations, group permissions and access removal across sessions', {
       }
       assert.deepEqual(rows.map(row => row.title), index === 3 ? [] : ['Dinner']);
     }
+    const chat = '/events/1/chat';
+    const message = { client_id: '77346d2b-32fd-4927-9ff1-83cf5239658c', body: 'Bis später!' };
+    const feed = async index => (await (await api(index, '/events')).json())[0];
+    assert.deepEqual(await (await api(1, chat)).json(), { messages: [], more: false });
+    assert.equal((await api(3, chat, 'POST', message)).status, 404);
+    const sent = await (await api(0, chat, 'POST', message)).json();
+    await Promise.all([host(), guest(), both()]);
+    assert.deepEqual(await (await api(0, chat, 'POST', message)).json(), sent);
+    assert.equal((await feed(0)).unread, 0);
+    assert.equal((await feed(1)).unread, 1);
+    assert.equal((await (await api(1, chat)).json()).messages[0].body, message.body);
+    assert.equal((await api(1, chat + '/read', 'PUT', sent)).status, 200);
+    await guest();
+    assert.equal((await feed(1)).unread, 0);
+    assert.equal((await feed(2)).unread, 1);
     assert.equal((await api(1, '/events/1/rsvp', 'PUT', { status: 'Going' })).status, 200);
     await Promise.all([host(), guest(), both()]);
     await db.query("DELETE FROM group_members WHERE member_id=1");
@@ -72,6 +87,9 @@ test('live invitations, group permissions and access removal across sessions', {
     await db.query("DELETE FROM group_members WHERE member_id=2");
     await Promise.all([host(), guest(), both()]);
     assert.deepEqual(await (await api(1, '/events')).json(), []);
+    assert.equal((await api(1, chat)).status, 404);
+    assert.equal((await api(1, chat, 'POST', message)).status, 404);
+    assert.equal((await api(1, chat + '/read', 'PUT', sent)).status, 404);
   } finally {
     streams.abort();
     if (server && server.exitCode === null && !server.signalCode) {

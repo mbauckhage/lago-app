@@ -15,6 +15,8 @@ import AppSheet from './components/ui/AppSheet.vue';
 import AppTab from './components/ui/AppTab.vue';
 import AppAvatar from './components/ui/AppAvatar.vue';
 import FormField from './components/ui/FormField.vue';
+import EventChat from './components/EventChat.vue';
+import UnreadBadge from './components/UnreadBadge.vue';
 import EventCard from './components/events/EventCard.vue';
 import RsvpControls from './components/events/RsvpControls.vue';
 
@@ -26,13 +28,14 @@ const responseLabels = { Going: 'Dabei', Maybe: 'Vielleicht', Declined: 'Abgesag
 const responseLabel = status => responseLabels[status] ?? 'Antwort ausstehend';
 const locale = 'de-CH';
 const weekdays = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
-const tabs = { Feed: 'Übersicht', Calendar: 'Kalender', Profile: 'Profil' };
+const tabs = { Feed: 'Übersicht', Chat: 'Chat', Calendar: 'Kalender', Profile: 'Profil' };
 const zone = 'Europe/Zurich';
 const today = () => DateTime.now().setZone(zone);
 const me = ref(null);
 const profilePhoto = ref(null);
 const ready = ref(false);
-const requestedEvent = Number(new URLSearchParams(location.search).get('event'));
+const notificationParams = new URLSearchParams(location.search);
+const requestedEvent = Number(notificationParams.get('event'));
 let firstOpening = true;
 try {
   firstOpening = !sessionStorage.getItem('lago.opened');
@@ -66,6 +69,17 @@ onUnmounted(() => {
 const signingUp = ref(false);
 const tab = ref('Feed');
 const events = ref([]);
+const chatId = ref(null);
+const chatEvent = computed(() => events.value.find(event => event.id === chatId.value));
+const inbox = computed(() => [...events.value].sort((a, b) =>
+  (b.latest_message?.id ?? 0) - (a.latest_message?.id ?? 0) || b.id - a.id));
+const modalOpen = ref(false);
+function openChat(event) {
+  memberProfile.value = null;
+  profileOrigins.length = 0;
+  chatId.value = event.id;
+  tab.value = 'Chat';
+}
 const memberProfile = ref(null);
 const profileTab = ref('own');
 const settingsOpen = ref(false);
@@ -189,6 +203,7 @@ async function updateFeed() {
   }
   loadedAccount = account;
   events.value = rows;
+  if (!chatEvent.value) chatId.value = null;
   void updateAppBadge(rows.filter(event => !event.mine && !event.cancelled && !event.status).length);
   if (sheet.value === 'details' && dialog.value?.open && !current.value) dialog.value.close();
 }
@@ -196,6 +211,7 @@ async function updateFeed() {
 watch(() => me.value?.approved && me.value.id, (account, previous, cleanup) => {
   if (!account) {
     loadedAccount = undefined;
+    chatId.value = null;
     void updateAppBadge(0);
     return;
   }
@@ -269,11 +285,16 @@ onMounted(async () => {
   clearTimeout(loadingTimer);
   ready.value = true;
   if (error.value) finishIntro();
-  if (events.value.some(event => event.id === requestedEvent)) {
-    eventId.value = requestedEvent;
-    await openSheet('details');
-  }
+  await openNotificationTarget();
 });
+
+async function openNotificationTarget() {
+  const event = events.value.find(row => row.id === requestedEvent);
+  if (!event) return;
+  if (notificationParams.get('view') === 'chat') return openChat(event);
+  eventId.value = event.id;
+  await openSheet('details');
+}
 
 function authenticate(form) {
   const fields = Object.fromEntries(new FormData(form));
@@ -281,8 +302,7 @@ function authenticate(form) {
     me.value = await api(signingUp.value ? '/register' : '/login', 'POST', fields);
     if (me.value.approved) {
       await updateFeed();
-      const requested = Number(new URLSearchParams(location.search).get('event'));
-      if (events.value.some(event => event.id === requested)) { eventId.value = requested; await openSheet('details'); }
+      await openNotificationTarget();
     }
   });
 }
@@ -319,6 +339,7 @@ watch(tab, () => {
 async function openSheet(name) {
   sheetError.value = '';
   sheet.value = name;
+  modalOpen.value = true;
   await nextTick();
   if (!dialog.value.open) dialog.value.showModal();
   else dialog.value.focus();
@@ -453,7 +474,7 @@ function resetCalendar() {
     </header>
 
     <main ref="content" class="overflow-auto overscroll-y-contain pt-[19px] pb-7">
-      <div class="mx-auto w-full px-5 max-[360px]:px-3.5" :class="(displayedProfile || (me?.approved && tab === 'Calendar')) ? 'max-w-[960px]' : 'max-w-[580px]'">
+      <div class="mx-auto w-full px-5 max-[360px]:px-3.5" :class="[tab === 'Chat' && chatEvent && !displayedProfile && 'h-full', (displayedProfile || (me?.approved && tab === 'Calendar')) ? 'max-w-[960px]' : 'max-w-[580px]']">
         <p v-if="error" class="mb-3.5 rounded-xl bg-danger-wash px-4 py-3.5 text-sm leading-[1.45] text-danger" role="alert">{{ error }}</p>
         <p v-if="!ready" class="text-[13px] leading-[1.4] text-muted" role="status">Lago Nostre wird geöffnet…</p>
 
@@ -483,13 +504,28 @@ function resetCalendar() {
         </section>
 
         <MemberProfile v-else-if="displayedProfile" :person="displayedProfile" :events="events" v-model:selected-tab="profileTab"
-          :own="!memberProfile" :label-date="labelDate" @back="closeMember" @settings="settingsOpen = true" @open="showEvent" />
+          :own="!memberProfile" :label-date="labelDate" @back="closeMember" @settings="settingsOpen = true" @open="openChat" />
 
         <template v-else-if="tab === 'Feed'">
           <h1 data-install-focus tabindex="-1">Deine Übersicht</h1>
           <p class="mt-0 mb-5 text-sm leading-[1.45] text-muted">Pläne mit der Lago-Gruppe</p>
           <p v-if="!events.length" class="rounded-xl bg-wash px-4 py-3.5 text-sm leading-[1.45] text-on-wash">Hier erscheinen deine Termine und Einladungen.</p>
-          <EventCard v-for="event in events" :key="event.id" :event="event" :busy="busy" :label-date="labelDate" @open="showEvent" @respond="rsvp" @profile="showHost" />
+          <EventCard v-for="event in events" :key="event.id" :event="event" :busy="busy" :label-date="labelDate" @open="openChat" @respond="rsvp" @profile="showHost" />
+        </template>
+
+        <template v-else-if="tab === 'Chat'">
+          <EventChat v-if="chatEvent" :key="me.id + '-' + chatEvent.id" :event="chatEvent" :me="me" :api="api" :details-open="modalOpen"
+            @back="chatId = null" @details="showEvent(chatEvent)" />
+          <section v-else>
+            <h1>Chat</h1>
+            <p v-if="!inbox.length" class="text-sm text-muted">Sobald du zu einem Termin eingeladen bist oder selbst einen erstellst, erscheint hier der Chat.</p>
+            <button v-for="event in inbox" :key="event.id" class="flex min-h-20 w-full items-center gap-3 border-b border-line py-3 text-left" @click="openChat(event)">
+              <img v-if="event.photo" :src="event.photo" alt="" class="size-12 shrink-0 rounded-xl object-cover">
+              <span v-else class="grid size-12 shrink-0 place-content-center rounded-xl bg-panel text-center leading-tight"><strong>{{ event.date.slice(8) }}</strong><small>{{ labelDate(event.date, { month: 'short' }) }}</small></span>
+              <span class="min-w-0 flex-1"><strong class="block truncate">{{ event.title }}</strong><small class="block truncate text-muted">{{ event.latest_message ? event.latest_message.sender + ': ' + event.latest_message.body : 'Noch keine Nachrichten' }}</small></span>
+              <UnreadBadge :count="event.unread" /><Icon name="next" />
+            </button>
+          </section>
         </template>
 
         <template v-else-if="tab === 'Calendar'">
@@ -515,10 +551,10 @@ function resetCalendar() {
             </button>
           </div>
           <h2 class="mt-6 mb-2 text-[17px] font-bold tracking-[-.02em]">{{ day ? labelDate(day) : 'Diesen Monat' }}</h2>
-          <button v-for="event in calendarEvents" :key="event.id" class="flex min-h-[62px] w-full items-center gap-[11px] border-b border-line py-2 text-left [&_svg]:size-[15px]" @click="showEvent(event)">
+          <button v-for="event in calendarEvents" :key="event.id" class="flex min-h-[62px] w-full items-center gap-[11px] border-b border-line py-2 text-left [&_svg]:size-[15px]" @click="openChat(event)">
             <img v-if="event.photo" class="size-12 rounded-[10px] bg-wash object-cover" :src="event.photo" alt="">
             <span class="min-w-0 flex-1 [&_strong]:block [&_strong]:wrap-anywhere [&_small]:mt-1 [&_small]:block [&_small]:text-xs [&_small]:text-muted [&_small]:wrap-anywhere"><strong>{{ event.title }}</strong><small>{{ labelDate(event.date) }} · {{ event.time }} · {{ event.cancelled ? 'Abgesagt' : event.mine ? 'Von dir organisiert' : responseLabel(event.status) }}</small></span>
-            <Icon name="next" />
+            <UnreadBadge :count="event.unread" /><Icon name="next" />
           </button>
           <p v-if="!calendarEvents.length" class="text-[13px] leading-[1.4] text-muted">{{ day ? 'Keine Termine an diesem Tag.' : 'Keine Termine in diesem Monat.' }}</p>
         </template>
@@ -536,7 +572,7 @@ function resetCalendar() {
             <FormField>Anzeigename<input name="name" :value="me.name" maxlength="35" required></FormField>
             <ProfilePhoto ref="profilePhoto" :photo="me.photo" :disabled="busy" />
             <h2 class="mt-6 mb-2 text-[17px] font-bold tracking-[-.02em]">Benachrichtigungen</h2>
-            <p class="text-[13px] leading-[1.4] text-muted">Push informiert dich über neue Einladungen, Terminänderungen und Absagen. E-Mail-Benachrichtigungen sind noch nicht verfügbar.</p>
+            <p class="text-[13px] leading-[1.4] text-muted">Push informiert dich über neue Chatnachrichten, Einladungen, Terminänderungen und Absagen. E-Mail-Benachrichtigungen sind noch nicht verfügbar.</p>
             <FormField checkbox><input name="email_updates" type="checkbox" :checked="me.email_updates"> E-Mail-Benachrichtigungen</FormField>
             <FormField checkbox><input name="push_updates" type="checkbox" :checked="me.push_updates"> Push-Benachrichtigungen</FormField>
             <AppButton variant="primary" class="mt-2.5" :disabled="busy" type="submit">Änderungen speichern</AppButton>
@@ -568,11 +604,11 @@ function resetCalendar() {
 
     <nav v-if="me?.approved" class="border-t border-line bg-surface pb-[env(safe-area-inset-bottom)]" aria-label="Hauptnavigation">
       <div class="mx-auto w-full max-w-[580px] px-5 max-[360px]:px-3.5 flex min-h-[68px] items-center justify-around">
-        <AppTab v-for="(label, name) in tabs" :key="name" :active="tab === name" :icon="name.toLowerCase()" @click="tab = name; if (name === 'Profile') { settingsOpen = false; memberProfile = null; profileOrigins.length = 0; }">{{ label }}</AppTab>
+        <AppTab v-for="(label, name) in tabs" :key="name" :active="tab === name" :icon="name.toLowerCase()" @click="tab = name; if (name === 'Chat') chatId = null; if (name === 'Profile') { settingsOpen = false; memberProfile = null; profileOrigins.length = 0; }">{{ label }}</AppTab>
       </div>
     </nav>
 
-    <AppSheet ref="dialog" :vertical-scroll-only="sheet === 'editor'">
+    <AppSheet ref="dialog" @close="modalOpen = false" :vertical-scroll-only="sheet === 'editor'">
       <template #title>{{ sheet === 'details' ? current?.title : sheet === 'editor' ? (draft?.id ? 'Termin bearbeiten' : 'Neuer Termin')
           : sheet === 'admin' ? 'Mitglieder verwalten' : sheet === 'reset-calendar' ? 'Kalenderlink zurücksetzen?' : 'Diesen Termin absagen?' }}</template>
       <p v-if="sheetError" class="mb-3.5 rounded-xl bg-danger-wash px-4 py-3.5 text-sm leading-[1.45] text-danger" role="alert">{{ sheetError }}</p>

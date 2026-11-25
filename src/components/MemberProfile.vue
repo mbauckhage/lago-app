@@ -1,6 +1,7 @@
 <script setup>
 import { computed } from 'vue';
 import { memberEvents } from '../member-events.js';
+import UnreadBadge from './UnreadBadge.vue';
 import Icon from '../Icon.vue';
 import AppAvatar from './ui/AppAvatar.vue';
 import AppButton from './ui/AppButton.vue';
@@ -32,7 +33,7 @@ const visibleEvents = computed(() => memberEvents(props.events, props.person.id,
               <div class="p-2 sm:p-3">
                 <strong class="block text-sm leading-snug wrap-anywhere sm:text-lg">{{ event.title }}</strong>
                 <span class="mt-1 block text-xs text-muted wrap-anywhere">{{ labelDate(event.date, { day: 'numeric', month: 'short' }) }} · {{ event.time }}</span>
-                <span v-if="event.cancelled" class="mt-1 block text-xs text-danger">Abgesagt</span>
+                <UnreadBadge :count="event.unread" /><span v-if="event.cancelled" class="mt-1 block text-xs text-danger">Abgesagt</span>
               </div>
             </button>
           </div>

@@ -95,11 +95,19 @@ BEGIN
         WHERE coalesce(NEW.group_name, OLD.group_name)=ANY(e.groups) LOOP
       PERFORM pg_notify('lago_changes', recipient::text);
     END LOOP;
-  ELSIF TG_TABLE_NAME = 'responses' THEN
+  ELSIF TG_TABLE_NAME IN ('responses', 'chat_messages') THEN
     FOR recipient IN SELECT member_id FROM event_guests WHERE event_id=NEW.event_id
       UNION SELECT host_id FROM events WHERE id=NEW.event_id LOOP
       PERFORM pg_notify('lago_changes', recipient::text);
     END LOOP;
+    IF TG_TABLE_NAME = 'chat_messages' THEN
+      INSERT INTO push_jobs(event_id,member_id,kind)
+        SELECT NEW.event_id,participants.member_id,'chat' FROM (
+          SELECT host_id AS member_id FROM events WHERE id=NEW.event_id
+          UNION SELECT member_id FROM event_guests WHERE event_id=NEW.event_id
+        ) participants WHERE participants.member_id<>NEW.sender_id;
+      PERFORM pg_notify('lago_changes', 'push');
+    END IF;
   ELSE
     FOR recipient IN SELECT member_id FROM event_guests WHERE event_id=NEW.id
       UNION SELECT NEW.host_id
@@ -121,3 +129,22 @@ DROP TRIGGER IF EXISTS response_change ON responses;
 CREATE TRIGGER response_change AFTER INSERT OR UPDATE ON responses FOR EACH ROW EXECUTE FUNCTION signal_event_change();
 DROP TRIGGER IF EXISTS membership_change ON group_members;
 CREATE TRIGGER membership_change AFTER INSERT OR DELETE ON group_members FOR EACH ROW EXECUTE FUNCTION signal_event_change();
+
+CREATE TABLE IF NOT EXISTS chat_messages (
+  id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  event_id integer NOT NULL REFERENCES events ON DELETE CASCADE,
+  sender_id integer NOT NULL REFERENCES members,
+  client_id uuid NOT NULL,
+  body text NOT NULL CHECK (length(body) BETWEEN 1 AND 4000),
+  sent_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+  UNIQUE(event_id, sender_id, client_id)
+);
+CREATE INDEX IF NOT EXISTS chat_history ON chat_messages(event_id, id);
+CREATE TABLE IF NOT EXISTS chat_reads (
+  event_id integer NOT NULL REFERENCES events ON DELETE CASCADE,
+  member_id integer NOT NULL REFERENCES members ON DELETE CASCADE,
+  last_id integer NOT NULL,
+  PRIMARY KEY(event_id, member_id)
+);
+DROP TRIGGER IF EXISTS message_change ON chat_messages;
+CREATE TRIGGER message_change AFTER INSERT ON chat_messages FOR EACH ROW EXECUTE FUNCTION signal_event_change();

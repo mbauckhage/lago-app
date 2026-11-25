@@ -1,4 +1,5 @@
 import Fastify from 'fastify';
+import { setupChat } from './chat.js';
 import { setupLive } from './live.js';
 import { setupPush } from './push.js';
 import serveStatic from '@fastify/static';
@@ -103,6 +104,7 @@ function account(user) {
 
 const deliver = await setupPush(app, db, member, invalid);
 await setupLive(app, db, member, deliver);
+setupChat(app, db, member, missing, invalid);
 
 app.get('/api/me/groups', async req => {
   const user = await member(req);
@@ -225,6 +227,11 @@ app.get('/api/events', async req => {
   const { rows } = await db.query(`
     SELECT e.*, h.name AS host, h.photo AS host_photo, s.status,
       (e.host_id=$1) AS mine,
+      (SELECT count(*)::int FROM chat_messages m WHERE m.event_id=e.id AND m.sender_id<>$1
+        AND m.id>coalesce(cr.last_id,0)) AS unread,
+      (SELECT json_build_object('id',m.id,'body',left(m.body,120),'sent_at',m.sent_at,'sender',a.name)
+        FROM chat_messages m JOIN members a ON a.id=m.sender_id WHERE m.event_id=e.id
+        ORDER BY m.id DESC LIMIT 1) AS latest_message,
       (SELECT coalesce(json_agg(json_build_object('id', m.id, 'name', m.name, 'status', r.status)
         ORDER BY m.name,m.id), '[]'::json)
         FROM event_guests g JOIN members m ON m.id=g.member_id
@@ -232,6 +239,7 @@ app.get('/api/events', async req => {
         WHERE g.event_id=e.id) AS guests
     FROM events e JOIN members h ON h.id=e.host_id
     LEFT JOIN responses s ON s.event_id=e.id AND s.member_id=$1
+    LEFT JOIN chat_reads cr ON cr.event_id=e.id AND cr.member_id=$1
     WHERE e.host_id=$1 OR EXISTS (SELECT 1 FROM event_guests WHERE event_id=e.id AND member_id=$1)
     ORDER BY e.id DESC`, [user.id]);
   return rows.map(({ host_id, people, groups, starts_at, ends_at, ...event }) => {
