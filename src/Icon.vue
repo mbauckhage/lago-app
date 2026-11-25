@@ -1,6 +1,8 @@
 <script setup>
 defineProps({ name: String });
 const icons = {
+  chat:'M20 14a3 3 0 0 1-3 3H9l-5 4V6a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3zM8 8h8m-8 4h5',
+  send:'m4 11 16-7-6 16-3-7-7-2zm7 2 9-9',
   share:'M12 15V3m-4 4 4-4 4 4M8 10H5v11h14V10h-3',
   menu:'M12 5h.01M12 12h.01M12 19h.01',
   image:'M4 4h16v16H4zM4 16l5-5 4 4 3-3 4 4M16 8h.01',

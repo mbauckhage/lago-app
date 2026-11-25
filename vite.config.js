@@ -6,7 +6,7 @@ const testAppIcons = {
   name: 'lago-test-app-icons',
   transformIndexHtml(html) {
     return html
-      .replace('href="/lago.svg" type="image/svg+xml"', 'href="/lago-test-192.png" type="image/png"')
+      .replace('/lago-favicon.png', '/lago-test-favicon.png')
       .replace('/lago-apple-touch.png', '/lago-test-apple-touch.png')
       .replace('/manifest.webmanifest', '/manifest-test.webmanifest');
   }

@@ -1,10 +1,21 @@
+async function updateAppBadge(count) {
+  if (!Number.isSafeInteger(count) || count < 0) return;
+  try {
+    if (count) await self.navigator.setAppBadge?.(count);
+    else await self.navigator.clearAppBadge?.();
+  } catch { /* A badge failure must not interrupt notification delivery. */ }
+}
+
 self.addEventListener('push', event => {
   let data = {};
   try { data = event.data?.json() || {}; } catch {}
-  event.waitUntil(self.registration.showNotification(data.title || 'Lago Nostre', {
-    body: data.body || 'Es gibt Neuigkeiten in Lago Nostre.', icon: '/lago-192.png',
-    tag: data.tag, data: { url: data.url || '/' }
-  }));
+  event.waitUntil(Promise.all([
+    updateAppBadge(data.badgeCount),
+    self.registration.showNotification(data.title || 'Lago Nostre', {
+      body: data.body || 'Es gibt Neuigkeiten in Lago Nostre.', icon: '/lago-192.png',
+      tag: data.tag, data: { url: data.url || '/' }
+    })
+  ]));
 });
 self.addEventListener('notificationclick', event => {
   event.notification.close();

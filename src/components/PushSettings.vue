@@ -24,7 +24,7 @@ const message = computed(() => {
   if (ios && !installed) return 'Auf dem iPhone oder iPad: In Safari «Teilen» → «Zum Home-Bildschirm» wählen und Lago von dort öffnen (iOS 16.4 oder neuer).';
   if (!supported) return 'Dieser Browser unterstützt Push hier nicht. Öffne Lago über HTTPS in einem unterstützten Browser.';
   if (permission.value === 'denied') return 'Benachrichtigungen sind blockiert. Erlaube sie in den Geräte- oder Browsereinstellungen und öffne Lago erneut.';
-  if (active.value) return 'Dieses Gerät erhält neue Einladungen, Terminänderungen und Absagen, wenn deine gespeicherte Push-Einstellung eingeschaltet ist.';
+  if (active.value) return 'Dieses Gerät erhält neue Chatnachrichten, Einladungen, Terminänderungen und Absagen, wenn deine gespeicherte Push-Einstellung eingeschaltet ist.';
   return 'Aktiviere Benachrichtigungen für dieses Gerät. Danach fragt dich dein Gerät um Erlaubnis.';
 });
 async function request(method, body) {

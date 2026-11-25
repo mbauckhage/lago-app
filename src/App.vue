@@ -1,4 +1,5 @@
 <script setup>
+import { memberColor } from './member-color.js';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { DateTime } from 'luxon';
 import { readPhoto } from './photos.js';
@@ -10,11 +11,14 @@ import ImageSelector from './components/ImageSelector.vue';
 import ProfilePhoto from './components/ProfilePhoto.vue';
 import InstallApp from './components/InstallApp.vue';
 import PushSettings from './components/PushSettings.vue';
+import CalendarSubscription from './components/CalendarSubscription.vue';
 import AppButton from './components/ui/AppButton.vue';
 import AppSheet from './components/ui/AppSheet.vue';
 import AppTab from './components/ui/AppTab.vue';
 import AppAvatar from './components/ui/AppAvatar.vue';
 import FormField from './components/ui/FormField.vue';
+import EventChat from './components/EventChat.vue';
+import UnreadBadge from './components/UnreadBadge.vue';
 import EventCard from './components/events/EventCard.vue';
 import RsvpControls from './components/events/RsvpControls.vue';
 
@@ -26,13 +30,14 @@ const responseLabels = { Going: 'Dabei', Maybe: 'Vielleicht', Declined: 'Abgesag
 const responseLabel = status => responseLabels[status] ?? 'Antwort ausstehend';
 const locale = 'de-CH';
 const weekdays = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
-const tabs = { Feed: 'Übersicht', Calendar: 'Kalender', Profile: 'Profil' };
+const tabs = { Feed: 'Übersicht', Chat: 'Chat', Calendar: 'Kalender', Profile: 'Profil' };
 const zone = 'Europe/Zurich';
 const today = () => DateTime.now().setZone(zone);
 const me = ref(null);
 const profilePhoto = ref(null);
 const ready = ref(false);
-const requestedEvent = Number(new URLSearchParams(location.search).get('event'));
+const notificationParams = new URLSearchParams(location.search);
+const requestedEvent = Number(notificationParams.get('event'));
 let firstOpening = true;
 try {
   firstOpening = !sessionStorage.getItem('lago.opened');
@@ -65,7 +70,19 @@ onUnmounted(() => {
 });
 const signingUp = ref(false);
 const tab = ref('Feed');
+const headerTitle = computed(() => me.value?.approved && ['Calendar', 'Profile'].includes(tab.value) ? tabs[tab.value] : 'Lago Nostre');
 const events = ref([]);
+const chatId = ref(null);
+const chatEvent = computed(() => events.value.find(event => event.id === chatId.value));
+const inbox = computed(() => [...events.value].sort((a, b) =>
+  (b.latest_message?.id ?? 0) - (a.latest_message?.id ?? 0) || b.id - a.id));
+const modalOpen = ref(false);
+function openChat(event) {
+  memberProfile.value = null;
+  profileOrigins.length = 0;
+  chatId.value = event.id;
+  tab.value = 'Chat';
+}
 const memberProfile = ref(null);
 const profileTab = ref('own');
 const settingsOpen = ref(false);
@@ -97,6 +114,9 @@ async function closeMember() {
 }
 
 const members = ref([]);
+const individualInvitees = computed(() => members.value.filter(person => person.id !== me.value?.id));
+const expandedGroup = ref(null);
+const expandedMembers = computed(() => members.value.filter(person => person.groups.includes(expandedGroup.value)));
 const adminMembers = ref([]);
 const busy = ref(false);
 const error = ref('');
@@ -109,15 +129,35 @@ const eventId = ref(null);
 const draft = ref(null);
 const month = ref(today().startOf('month'));
 const day = ref('');
+const currentDate = ref(today().toISODate());
+let dateTimer;
+function refreshCalendarDate() {
+  clearTimeout(dateTimer);
+  const now = today();
+  currentDate.value = now.toISODate();
+  dateTimer = setTimeout(refreshCalendarDate, now.plus({ days: 1 }).startOf('day').diff(now).milliseconds + 50);
+}
+onMounted(() => {
+  refreshCalendarDate();
+  document.addEventListener('visibilitychange', refreshCalendarDate);
+});
+onUnmounted(() => {
+  clearTimeout(dateTimer);
+  document.removeEventListener('visibilitychange', refreshCalendarDate);
+});
+function selectToday() {
+  refreshCalendarDate();
+  month.value = today().startOf('month');
+  day.value = currentDate.value;
+}
 const calendarUrl = computed(() => me.value?.calendar_token
   ? new URL('/calendar/' + me.value.calendar_token + '.ics', location.origin).href : '');
-const calendarAppUrl = computed(() => calendarUrl.value.replace(/^https?:/, 'webcal:'));
 const current = computed(() => events.value.find(event => event.id === eventId.value));
 const monthEvents = computed(() => events.value.filter(event => event.date.startsWith(month.value.toFormat('yyyy-MM')))
   .sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time)));
 const visibleDays = computed(() => Array.from({ length: month.value.daysInMonth }, (_, i) => {
   const date = month.value.set({ day: i + 1 }).toISODate();
-  return { date, number: i + 1, count: monthEvents.value.filter(event => event.date === date).length };
+  return { date, number: i + 1, events: monthEvents.value.filter(event => event.date === date) };
 }));
 const calendarEvents = computed(() => day.value ? monthEvents.value.filter(event => event.date === day.value) : monthEvents.value);
 const labelDate = (date, options = { weekday: 'short', day: 'numeric', month: 'short' }) =>
@@ -142,6 +182,13 @@ async function api(path, method = 'GET', body) {
   return response.status === 204 ? undefined : response.json();
 }
 
+async function updateAppBadge(count) {
+  try {
+    if (count) await navigator.setAppBadge?.(count);
+    else await navigator.clearAppBadge?.();
+  } catch { /* Badge permission is optional. */ }
+}
+
 let requestedFeed = 0;
 let appliedFeed = 0;
 let loadedAccount;
@@ -158,11 +205,18 @@ async function updateFeed() {
   }
   loadedAccount = account;
   events.value = rows;
+  if (!chatEvent.value) chatId.value = null;
+  void updateAppBadge(rows.filter(event => !event.mine && !event.cancelled && !event.status).length);
   if (sheet.value === 'details' && dialog.value?.open && !current.value) dialog.value.close();
 }
 
 watch(() => me.value?.approved && me.value.id, (account, previous, cleanup) => {
-  if (!account) { loadedAccount = undefined; return; }
+  if (!account) {
+    loadedAccount = undefined;
+    chatId.value = null;
+    void updateAppBadge(0);
+    return;
+  }
   const source = new EventSource('/api/events/live');
   let retry;
   async function refresh() {
@@ -219,6 +273,7 @@ async function loadAccount() {
     if (problem.status !== 401) throw problem;
     me.value = null;
   }
+  if (!me.value?.approved) void updateAppBadge(0);
   if (me.value?.approved) {
     await updateFeed();
 
@@ -232,11 +287,16 @@ onMounted(async () => {
   clearTimeout(loadingTimer);
   ready.value = true;
   if (error.value) finishIntro();
-  if (events.value.some(event => event.id === requestedEvent)) {
-    eventId.value = requestedEvent;
-    await openSheet('details');
-  }
+  await openNotificationTarget();
 });
+
+async function openNotificationTarget() {
+  const event = events.value.find(row => row.id === requestedEvent);
+  if (!event) return;
+  if (notificationParams.get('view') === 'chat') return openChat(event);
+  eventId.value = event.id;
+  await openSheet('details');
+}
 
 function authenticate(form) {
   const fields = Object.fromEntries(new FormData(form));
@@ -244,8 +304,7 @@ function authenticate(form) {
     me.value = await api(signingUp.value ? '/register' : '/login', 'POST', fields);
     if (me.value.approved) {
       await updateFeed();
-      const requested = Number(new URLSearchParams(location.search).get('event'));
-      if (events.value.some(event => event.id === requested)) { eventId.value = requested; await openSheet('details'); }
+      await openNotificationTarget();
     }
   });
 }
@@ -269,7 +328,23 @@ function signOut() {
   });
 }
 
+async function promptCalendarSubscription() {
+  const account = me.value;
+  if (!account?.approved || account.calendar_prompt_seen) return;
+  account.calendar_prompt_seen = true;
+  try {
+    const { showPrompt } = await api('/me/calendar/prompt', 'PUT');
+    if (showPrompt && me.value?.id === account.id && tab.value === 'Calendar' && !modalOpen.value) {
+      await openSheet('subscribe-calendar');
+    }
+  } catch {
+    // Retry on the next calendar visit if the server could not record this one.
+    account.calendar_prompt_seen = false;
+  }
+}
+
 watch(tab, () => {
+  if (tab.value === 'Calendar') void promptCalendarSubscription();
   memberProfile.value = null;
   settingsOpen.value = false;
   profileTab.value = 'own';
@@ -282,9 +357,10 @@ watch(tab, () => {
 async function openSheet(name) {
   sheetError.value = '';
   sheet.value = name;
+  modalOpen.value = true;
   await nextTick();
   if (!dialog.value.open) dialog.value.showModal();
-  else dialog.value.querySelector('input, button')?.focus();
+  else dialog.value.focus();
 }
 
 function showEvent(event) {
@@ -297,23 +373,31 @@ function showEvent(event) {
 }
 
 function editEvent(event) {
+  const date = tab.value === 'Calendar' && !displayedProfile.value && day.value ? day.value : today().toISODate();
   return run(async () => {
     await updateInviteGroups();
-    members.value = (await api('/members')).filter(member => member.id !== me.value.id);
+    members.value = await api('/members');
+    expandedGroup.value = null;
     draft.value = event ? { ...event, people: [...event.people], groups: event.groups.filter(group => inviteGroups.value.includes(group)) } : {
-      title: '', date: today().toISODate(), time: '18:00', place: '', note: '', photo: '', people: [], groups: []
+      title: '', date, time: '18:00', endDate: date, endTime: '19:00', place: '', note: '', photo: '', people: [], groups: []
     };
     await openSheet('editor');
   }, dialog.value?.open ? sheetError : error);
 }
 
+function changeStartDate(date) {
+  const event = draft.value;
+  if (!event.endDate || event.endDate === event.date || event.endDate < date) event.endDate = date;
+  event.date = date;
+}
+
 function saveEvent(form) {
   const fields = new FormData(form);
-  const { id, title, date, time, place, note, people, groups: selected } = draft.value;
+  const { id, title, date, time, endDate, endTime, place, note, people, groups: selected } = draft.value;
   return run(async () => {
     const photo = await readPhoto(fields.get('photo')) ?? (fields.has('remove_photo') ? '' : undefined);
     await api(id ? '/events/' + id : '/events', id ? 'PATCH' : 'POST', {
-      title, date, time, place, note, people, groups: selected, photo
+      title, date, time, endDate, endTime, place, note, people, groups: selected, photo
     });
     dialog.value.close();
     tab.value = 'Feed';
@@ -397,18 +481,19 @@ function resetCalendar() {
       class="mt-4 min-h-11 rounded-xl bg-panel px-4 text-[13px] font-medium text-muted hover:bg-control hover:text-ink"
       @click="finishIntro">Überspringen</button>
   </main>
-  <div v-else class="grid h-dvh grid-rows-[auto_minmax(0,1fr)_auto]">
+  <div v-else class="relative grid h-dvh grid-rows-[auto_minmax(0,1fr)_auto]"
+    :class="{ 'feed-scroll-fade': me?.approved && tab === 'Feed' && !displayedProfile }">
     <header class="relative isolate overflow-hidden border-b border-line bg-surface">
       <img :src="headerGif" alt="" width="880" height="328"
         class="pointer-events-none absolute inset-0 -z-10 h-full w-full object-cover object-[center_65%] opacity-30 motion-reduce:hidden">
       <div class="app-header-content mx-auto w-full max-w-[580px] px-5 max-[360px]:px-3.5 flex items-center justify-between pb-2 [&_button]:flex [&_button]:items-center [&_button]:gap-[5px]">
-        <span class="flex items-center gap-2 text-[25px] font-[780] tracking-[-.04em]">Lago Nostre</span>
+        <span data-install-focus tabindex="-1" class="flex items-center gap-2 text-[25px] font-[780] tracking-[-.04em]">{{ headerTitle }}</span>
         <AppButton variant="primary" v-if="me?.approved"  :disabled="busy" @click="editEvent()"><Icon name="plus" /> Neuer Termin</AppButton>
       </div>
     </header>
 
     <main ref="content" class="overflow-auto overscroll-y-contain pt-[19px] pb-7">
-      <div class="mx-auto w-full px-5 max-[360px]:px-3.5" :class="displayedProfile ? 'max-w-[960px]' : 'max-w-[580px]'">
+      <div class="mx-auto w-full px-5 max-[360px]:px-3.5" :class="[(displayedProfile || (tab === 'Chat' && chatEvent)) && 'h-full', (displayedProfile || (me?.approved && tab === 'Calendar')) ? 'max-w-[960px]' : 'max-w-[580px]']">
         <p v-if="error" class="mb-3.5 rounded-xl bg-danger-wash px-4 py-3.5 text-sm leading-[1.45] text-danger" role="alert">{{ error }}</p>
         <p v-if="!ready" class="text-[13px] leading-[1.4] text-muted" role="status">Lago Nostre wird geöffnet…</p>
 
@@ -438,35 +523,52 @@ function resetCalendar() {
         </section>
 
         <MemberProfile v-else-if="displayedProfile" :person="displayedProfile" :events="events" v-model:selected-tab="profileTab"
-          :own="!memberProfile" :label-date="labelDate" @back="closeMember" @settings="settingsOpen = true" @open="showEvent" />
+          :own="!memberProfile" :label-date="labelDate" @back="closeMember" @settings="settingsOpen = true" @open="openChat" />
 
         <template v-else-if="tab === 'Feed'">
-          <h1 data-install-focus tabindex="-1">Deine Übersicht</h1>
-          <p class="mt-0 mb-5 text-sm leading-[1.45] text-muted">Pläne mit der Lago-Gruppe</p>
           <p v-if="!events.length" class="rounded-xl bg-wash px-4 py-3.5 text-sm leading-[1.45] text-on-wash">Hier erscheinen deine Termine und Einladungen.</p>
-          <EventCard v-for="event in events" :key="event.id" :event="event" :busy="busy" :label-date="labelDate" @open="showEvent" @respond="rsvp" @profile="showHost" />
+          <EventCard v-for="event in events" :key="event.id" :event="event" :busy="busy" :label-date="labelDate" @open="openChat" @respond="rsvp" @profile="showHost" />
+        </template>
+
+        <template v-else-if="tab === 'Chat'">
+          <EventChat v-if="chatEvent" :key="me.id + '-' + chatEvent.id" :event="chatEvent" :me="me" :api="api" :details-open="modalOpen"
+            @back="chatId = null" @details="showEvent(chatEvent)" />
+          <section v-else>
+            <p v-if="!inbox.length" class="text-sm text-muted">Sobald du zu einem Termin eingeladen bist oder selbst einen erstellst, erscheint hier der Chat.</p>
+            <button v-for="event in inbox" :key="event.id" class="flex min-h-20 w-full items-center gap-3 border-b border-line py-3 text-left" @click="openChat(event)">
+              <img v-if="event.photo" :src="event.photo" alt="" class="size-12 shrink-0 rounded-xl object-cover">
+              <span v-else class="grid size-12 shrink-0 place-content-center rounded-xl bg-panel text-center leading-tight"><strong>{{ event.date.slice(8) }}</strong><small>{{ labelDate(event.date, { month: 'short' }) }}</small></span>
+              <span class="min-w-0 flex-1"><strong class="block truncate">{{ event.title }}</strong><small class="block truncate text-muted"><template v-if="event.latest_message"><span :style="{ color: memberColor(event.latest_message.sender_id) }">{{ event.latest_message.sender }}</span>: {{ event.latest_message.body }}</template><template v-else>Noch keine Nachrichten</template></small></span>
+              <UnreadBadge :count="event.unread" /><Icon name="next" />
+            </button>
+          </section>
         </template>
 
         <template v-else-if="tab === 'Calendar'">
-          <h1>Kalender</h1>
-          <p class="mt-0 mb-5 text-sm leading-[1.45] text-muted">Alle deine Termine und Einladungen</p>
-          <div class="mt-4 mb-2 flex items-center justify-between gap-2 [&_h2]:flex-1 [&_h2]:text-lg [&_h2]:font-bold">
+          <div class="mb-2 flex items-center justify-between gap-2 [&_h2]:flex-1 [&_h2]:text-lg [&_h2]:font-bold">
             <h2 aria-live="polite">{{ month.setLocale(locale).toFormat('MMMM yyyy') }}</h2>
+            <AppButton variant="soft" @click="selectToday">Heute</AppButton>
             <AppButton variant="icon" aria-label="Vorheriger Monat" @click="moveMonth(-1)"><Icon name="prev" /></AppButton>
             <AppButton variant="icon" aria-label="Nächster Monat" @click="moveMonth(1)"><Icon name="next" /></AppButton>
           </div>
-          <div class="grid grid-cols-7 gap-0.5 rounded-2xl bg-panel p-2 text-center [&_span]:py-[5px] [&_span]:text-[11px] [&_span]:text-muted [&_button]:relative [&_button]:min-h-10 [&_button]:rounded-[10px] [&_button]:text-sm [&_button]:tabular-nums [&_button[aria-pressed=true]]:bg-brand [&_button[aria-pressed=true]]:font-bold [&_button[aria-pressed=true]]:text-on-brand" aria-label="Tage des Monats">
-            <span v-for="weekday in weekdays" :key="weekday">{{ weekday }}</span>
+          <div class="lago-month" aria-label="Tage des Monats">
+            <span v-for="weekday in weekdays" :key="weekday" class="weekday">{{ weekday }}</span>
             <span v-for="index in month.weekday - 1" :key="'blank' + index" aria-hidden="true"></span>
-            <button v-for="entry in visibleDays" :key="entry.date" :class="entry.count ? 'after:absolute after:bottom-[5px] after:left-[calc(50%-2px)] after:size-1 after:rounded-full after:bg-current' : ''" :aria-pressed="day === entry.date"
-              :aria-label="labelDate(entry.date) + (entry.count ? ', ' + entry.count + (entry.count === 1 ? ' Termin' : ' Termine') : '')"
-              @click="day = day === entry.date ? '' : entry.date">{{ entry.number }}</button>
+            <button v-for="entry in visibleDays" :key="entry.date" class="month-day" :aria-pressed="day === entry.date"
+              :aria-current="entry.date === currentDate ? 'date' : undefined"
+              :aria-label="labelDate(entry.date) + (entry.date === currentDate ? ', heute' : '') + ', ' + entry.events.length + (entry.events.length === 1 ? ' Termin' : ' Termine')"
+              @click="day = day === entry.date ? '' : entry.date">
+              <span class="day-number">{{ entry.number }}</span>
+              <span v-for="event in entry.events.slice(0, 2)" :key="event.id" class="month-chip"
+                :class="{ hosted: event.mine, cancelled: event.cancelled }" :title="event.title">{{ event.title }}</span>
+              <small v-if="entry.events.length > 2" class="month-more">+{{ entry.events.length - 2 }}</small>
+            </button>
           </div>
           <h2 class="mt-6 mb-2 text-[17px] font-bold tracking-[-.02em]">{{ day ? labelDate(day) : 'Diesen Monat' }}</h2>
-          <button v-for="event in calendarEvents" :key="event.id" class="flex min-h-[62px] w-full items-center gap-[11px] border-b border-line py-2 text-left [&_svg]:size-[15px]" @click="showEvent(event)">
+          <button v-for="event in calendarEvents" :key="event.id" class="flex min-h-[62px] w-full items-center gap-[11px] border-b border-line py-2 text-left [&_svg]:size-[15px]" @click="openChat(event)">
             <img v-if="event.photo" class="size-12 rounded-[10px] bg-wash object-cover" :src="event.photo" alt="">
             <span class="min-w-0 flex-1 [&_strong]:block [&_strong]:wrap-anywhere [&_small]:mt-1 [&_small]:block [&_small]:text-xs [&_small]:text-muted [&_small]:wrap-anywhere"><strong>{{ event.title }}</strong><small>{{ labelDate(event.date) }} · {{ event.time }} · {{ event.cancelled ? 'Abgesagt' : event.mine ? 'Von dir organisiert' : responseLabel(event.status) }}</small></span>
-            <Icon name="next" />
+            <UnreadBadge :count="event.unread" /><Icon name="next" />
           </button>
           <p v-if="!calendarEvents.length" class="text-[13px] leading-[1.4] text-muted">{{ day ? 'Keine Termine an diesem Tag.' : 'Keine Termine in diesem Monat.' }}</p>
         </template>
@@ -484,7 +586,7 @@ function resetCalendar() {
             <FormField>Anzeigename<input name="name" :value="me.name" maxlength="35" required></FormField>
             <ProfilePhoto ref="profilePhoto" :photo="me.photo" :disabled="busy" />
             <h2 class="mt-6 mb-2 text-[17px] font-bold tracking-[-.02em]">Benachrichtigungen</h2>
-            <p class="text-[13px] leading-[1.4] text-muted">Push informiert dich über neue Einladungen, Terminänderungen und Absagen. E-Mail-Benachrichtigungen sind noch nicht verfügbar.</p>
+            <p class="text-[13px] leading-[1.4] text-muted">Push informiert dich über neue Chatnachrichten, Einladungen, Terminänderungen und Absagen. E-Mail-Benachrichtigungen sind noch nicht verfügbar.</p>
             <FormField checkbox><input name="email_updates" type="checkbox" :checked="me.email_updates"> E-Mail-Benachrichtigungen</FormField>
             <FormField checkbox><input name="push_updates" type="checkbox" :checked="me.push_updates"> Push-Benachrichtigungen</FormField>
             <AppButton variant="primary" class="mt-2.5" :disabled="busy" type="submit">Änderungen speichern</AppButton>
@@ -496,14 +598,9 @@ function resetCalendar() {
           </section>
           <section class="mt-[22px] border-t border-line pt-3.5 [&_h2]:mt-0">
             <h2 class="mt-6 mb-2 text-[17px] font-bold tracking-[-.02em]">Persönlicher Kalender</h2>
-            <p class="text-[13px] leading-[1.4] text-muted">Öffne deine Kalender-App und bestätige das Abo. Es enthält Termine, die du organisierst, sowie Einladungen, auf die du mit «Dabei» oder «Vielleicht» antwortest.</p>
-            <a :href="calendarAppUrl" class="inline-flex min-h-11 items-center rounded-xl bg-brand px-[13px] text-[13px] font-bold text-on-brand focus-visible:outline-2 focus-visible:outline-brand focus-visible:outline-offset-3">In Kalender-App öffnen</a>
-            <p class="text-[13px] leading-[1.4] text-muted">Falls sich keine Kalender-App öffnet, kopiere den Link und füge ihn dort als Kalenderabo hinzu.</p>
-            <FormField>Privater Kalenderlink<input :value="calendarUrl" readonly @focus="$event.target.select()"></FormField>
-            <div class="flex flex-wrap items-center gap-2">
-              <AppButton variant="soft" :disabled="busy" @click="run(async () => { await navigator.clipboard.writeText(calendarUrl); announce('Kalenderlink kopiert'); })">Link kopieren</AppButton>
+            <CalendarSubscription :url="calendarUrl">
               <AppButton variant="plain" :disabled="busy" @click="openSheet('reset-calendar')">Link zurücksetzen</AppButton>
-            </div>
+            </CalendarSubscription>
           </section>
           <div class="mt-[22px] border-t border-line pt-3.5 [&_h2]:mt-0 flex flex-wrap items-center gap-2">
             <AppButton variant="soft" v-if="me.admin"  :disabled="busy" @click="openAdmin">Mitglieder verwalten</AppButton>
@@ -516,19 +613,19 @@ function resetCalendar() {
 
     <nav v-if="me?.approved" class="border-t border-line bg-surface pb-[env(safe-area-inset-bottom)]" aria-label="Hauptnavigation">
       <div class="mx-auto w-full max-w-[580px] px-5 max-[360px]:px-3.5 flex min-h-[68px] items-center justify-around">
-        <AppTab v-for="(label, name) in tabs" :key="name" :active="tab === name" :icon="name.toLowerCase()" @click="tab = name; if (name === 'Profile') { settingsOpen = false; memberProfile = null; profileOrigins.length = 0; }">{{ label }}</AppTab>
+        <AppTab v-for="(label, name) in tabs" :key="name" :active="tab === name" :icon="name.toLowerCase()" @click="tab = name; if (name === 'Chat') chatId = null; if (name === 'Profile') { settingsOpen = false; memberProfile = null; profileOrigins.length = 0; }">{{ label }}</AppTab>
       </div>
     </nav>
 
-    <AppSheet ref="dialog">
+    <AppSheet ref="dialog" @close="modalOpen = false" :vertical-scroll-only="sheet === 'editor'">
       <template #title>{{ sheet === 'details' ? current?.title : sheet === 'editor' ? (draft?.id ? 'Termin bearbeiten' : 'Neuer Termin')
-          : sheet === 'admin' ? 'Mitglieder verwalten' : sheet === 'reset-calendar' ? 'Kalenderlink zurücksetzen?' : 'Diesen Termin absagen?' }}</template>
+          : sheet === 'subscribe-calendar' ? 'Lago zum eigenen Kalender hinzufügen?' : sheet === 'admin' ? 'Mitglieder verwalten' : sheet === 'reset-calendar' ? 'Kalenderlink zurücksetzen?' : 'Diesen Termin absagen?' }}</template>
       <p v-if="sheetError" class="mb-3.5 rounded-xl bg-danger-wash px-4 py-3.5 text-sm leading-[1.45] text-danger" role="alert">{{ sheetError }}</p>
 
       <template v-if="sheet === 'details' && current">
         <img v-if="current.photo" class="block h-[clamp(190px,52vw,305px)] w-full bg-wash object-cover" :src="current.photo" alt="">
-        <p class="text-[13px] leading-[1.4] text-muted">Organisiert von <button type="button" class="min-h-11 underline underline-offset-2" @click="showHost(current)">{{ current.host }}</button><span v-if="current.cancelled" class="ml-auto inline-block rounded-lg bg-danger-wash px-2 py-[5px] text-xs font-bold text-danger">Abgesagt</span></p>
-        <div class="flex flex-wrap items-center gap-1.5 text-[13px] leading-[1.4] text-muted [&_svg]:size-[15px]"><Icon name="calendar" /> {{ labelDate(current.date) }} · {{ current.time }} Schweizer Zeit</div>
+        <p class="text-[13px] leading-[1.4] text-muted">Organisiert von <button type="button" class="min-h-11 underline underline-offset-2" :style="{ color: memberColor(current.host_id) }" @click="showHost(current)">{{ current.host }}</button><span v-if="current.cancelled" class="ml-auto inline-block rounded-lg bg-danger-wash px-2 py-[5px] text-xs font-bold text-danger">Abgesagt</span></p>
+        <div class="flex flex-wrap items-center gap-1.5 text-[13px] leading-[1.4] text-muted [&_svg]:size-[15px]"><Icon name="calendar" /> {{ labelDate(current.date) }} · {{ current.time }}<template v-if="current.endTime"> – {{ current.endDate === current.date ? '' : labelDate(current.endDate) + ' · ' }}{{ current.endTime }}</template></div>
         <div v-if="current.place" class="flex flex-wrap items-center gap-1.5 text-[13px] leading-[1.4] text-muted [&_svg]:size-[15px]"><Icon name="pin" /> {{ current.place }}</div>
         <p v-if="current.note" class="whitespace-pre-wrap wrap-anywhere">{{ current.note }}</p>
         <h3 class="mt-6 mb-2 text-[17px] font-bold tracking-[-.02em]">Gäste</h3>
@@ -545,9 +642,11 @@ function resetCalendar() {
 
       <form v-else-if="sheet === 'editor' && draft" @submit.prevent="saveEvent($event.currentTarget)">
         <FormField>Titel des Termins<input v-model="draft.title" maxlength="75" required placeholder="Abendessen am Samstag"></FormField>
-        <div class="grid grid-cols-2 gap-[9px]">
-          <FormField>Datum<input v-model="draft.date" type="date" required></FormField>
-          <FormField>Uhrzeit in der Schweiz<input v-model="draft.time" type="time" required></FormField>
+        <div class="my-3 grid grid-cols-2 gap-x-3 gap-y-3 [&>label]:m-0 [&>label]:min-w-0 [&_input]:appearance-none">
+          <FormField>Startdatum<input :value="draft.date" type="date" required @input="changeStartDate($event.target.value)"></FormField>
+          <FormField>Startzeit<input v-model="draft.time" type="time" required></FormField>
+          <FormField>Enddatum<input v-model="draft.endDate" :min="draft.date" type="date" required></FormField>
+          <FormField>Endzeit<input v-model="draft.endTime" type="time" required></FormField>
         </div>
         <FormField>Ort <input v-model="draft.place" maxlength="80" placeholder="Ort hinzufügen"></FormField>
         <FormField>Notizen<textarea v-model="draft.note" maxlength="350" rows="2" placeholder="Was sollen die Gäste wissen?"></textarea></FormField>
@@ -555,11 +654,26 @@ function resetCalendar() {
         <FormField v-if="draft.photo" checkbox><input name="remove_photo" type="checkbox"> Titelbild entfernen</FormField>
         <fieldset v-if="inviteGroups.length">
           <legend>Gruppen einladen</legend>
-          <FormField v-for="group in inviteGroups" :key="group" checkbox><input v-model="draft.groups" type="checkbox" :value="group"> {{ group }}</FormField>
+          <div v-for="(group, index) in inviteGroups" :key="group">
+            <div class="flex items-center">
+              <FormField checkbox class="flex-1"><input v-model="draft.groups" type="checkbox" :value="group"> {{ group }}</FormField>
+              <AppButton variant="plain" class="w-11" :aria-label="`Mitglieder von ${group}`"
+                :aria-expanded="expandedGroup === group" :aria-controls="`group-roster-${index}`"
+                @click="expandedGroup = expandedGroup === group ? null : group">
+                <Icon name="next" :class="{ 'rotate-90': expandedGroup === group }" />
+              </AppButton>
+            </div>
+            <ul v-show="expandedGroup === group" :id="`group-roster-${index}`" :aria-label="`Mitglieder von ${group}`"
+              class="space-y-1 pb-2 pl-7 text-[13px] text-muted">
+              <template v-if="expandedGroup === group">
+                <li v-for="person in expandedMembers" :key="person.id">{{ person.name }}</li>
+              </template>
+            </ul>
+          </div>
         </fieldset>
-        <fieldset v-if="members.length">
+        <fieldset v-if="individualInvitees.length">
           <legend>Personen einladen</legend>
-          <FormField v-for="person in members" :key="person.id" checkbox><input v-model="draft.people" type="checkbox" :value="person.id"> {{ person.name }}</FormField>
+          <FormField v-for="person in individualInvitees" :key="person.id" checkbox><input v-model="draft.people" type="checkbox" :value="person.id"> {{ person.name }}</FormField>
         </fieldset>
         <AppButton variant="primary" class="mt-2 w-full" :disabled="busy" type="submit">{{ draft.id ? 'Termin speichern' : 'Termin veröffentlichen' }}</AppButton>
       </form>
@@ -580,6 +694,10 @@ function resetCalendar() {
           <AppButton variant="primary" class="mt-2.5" :disabled="busy" type="submit">{{ person.approved ? 'Gruppen speichern' : 'Mitglied freigeben' }}</AppButton>
         </form>
       </template>
+
+      <CalendarSubscription v-else-if="sheet === 'subscribe-calendar'" :url="calendarUrl">
+        <AppButton variant="plain" @click="dialog.close()">Später</AppButton>
+      </CalendarSubscription>
 
       <template v-else-if="sheet === 'reset-calendar'">
         <p>Der bisherige Link wird ungültig. Füge den neuen Link in deiner Kalender-App hinzu, um weiterhin Änderungen zu erhalten.</p>
