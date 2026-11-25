@@ -248,12 +248,13 @@ app.get('/api/events', async req => {
     LEFT JOIN chat_reads cr ON cr.event_id=e.id AND cr.member_id=$1
     WHERE e.host_id=$1 OR EXISTS (SELECT 1 FROM event_guests WHERE event_id=e.id AND member_id=$1)
     ORDER BY e.id DESC`, [user.id]);
-  return rows.map(({ host_id, people, groups, starts_at, ends_at, ...event }) => {
+  return rows.map(({ host_id, people, groups, starts_at, ends_at, rsvp_deadline, ...event }) => {
     const start = DateTime.fromJSDate(starts_at, { zone });
     const end = ends_at && DateTime.fromJSDate(ends_at, { zone });
+    const rsvp = rsvp_deadline && DateTime.fromJSDate(rsvp_deadline, { zone });
     return {
       ...event, host_id, date: start.toISODate(), time: start.toFormat('HH:mm'),
-      endDate: end?.toISODate(), endTime: end?.toFormat('HH:mm'),
+      endDate: end?.toISODate(), endTime: end?.toFormat('HH:mm'), rsvpDeadline: rsvp?.toFormat("yyyy-MM-dd'T'HH:mm") ?? null,
       ...(event.mine ? { people, groups } : {})
     };
   });
@@ -277,9 +278,19 @@ function eventDateTime(date, time) {
 
 async function eventFields(body, host, editing = false) {
   const { title, date, time, endDate, endTime, place, note, photo, people, groups: selected } = body ?? {};
+  const hasRsvpDeadline = Object.hasOwn(body ?? {}, 'rsvpDeadline');
+  let rsvpDeadline = null;
   const dateTime = eventDateTime(date, time);
   const end = endDate === undefined && endTime === undefined ? null : eventDateTime(endDate, endTime);
   if (end && end <= dateTime) throw invalid('Das Ende muss nach dem Start liegen.');
+  if (hasRsvpDeadline && body.rsvpDeadline != null && body.rsvpDeadline !== '') {
+    const value = body.rsvpDeadline;
+    const parsed = typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value) ? DateTime.fromISO(value, { zone }) : null;
+    if (!parsed?.isValid || parsed.toFormat("yyyy-MM-dd'T'HH:mm") !== value || parsed >= dateTime) {
+      throw invalid('Die Antwortfrist muss gültig sein und vor dem Terminstart liegen.');
+    }
+    rsvpDeadline = parsed.toJSDate();
+  }
   if (!clean(title) || clean(title).length > 75 || clean(place).length > 80 || clean(note).length > 350) {
     throw invalid('Gib einen Titel ein und beachte die Zeichenlimiten der Felder.');
   }
@@ -290,17 +301,19 @@ async function eventFields(body, host, editing = false) {
   if (!editing && !invitees.length && !selected.length) throw invalid('Wähle mindestens eine Person oder Gruppe aus.');
   const result = await db.query('SELECT id FROM members WHERE approved AND id=ANY($1::int[])', [invitees]);
   if (result.rowCount !== invitees.length) throw invalid('Eine eingeladene Person ist nicht verfügbar. Lade die Seite neu und versuch es erneut.');
-  return [clean(title), dateTime.toJSDate(), clean(place), clean(note), invitees, [...new Set(selected)], host, photo ?? null, end?.toJSDate() ?? null];
+  return [clean(title), dateTime.toJSDate(), clean(place), clean(note), invitees, [...new Set(selected)], host, photo ?? null,
+    end?.toJSDate() ?? null, rsvpDeadline, hasRsvpDeadline];
 }
 
 const hostGroups = 'ARRAY(SELECT group_name FROM group_members WHERE member_id=$7)';
 
 app.post('/api/events', async (req, reply) => {
   const user = await member(req);
+  const fields = await eventFields(req.body, user.id);
   const { rows: [event] } = await db.query(
-    `INSERT INTO events (title,starts_at,place,note,people,groups,host_id,photo,ends_at)
-     SELECT $1,$2,$3,$4,$5,$6,$7,coalesce($8,''),$9 WHERE $6::text[] <@ ${hostGroups} RETURNING id`,
-    await eventFields(req.body, user.id)
+    `INSERT INTO events (title,starts_at,place,note,people,groups,host_id,photo,ends_at,rsvp_deadline)
+     SELECT $1,$2,$3,$4,$5,$6,$7,coalesce($8,''),$9,$10 WHERE $6::text[] <@ ${hostGroups} RETURNING id`,
+    fields.slice(0, 10)
   );
   if (!event) throw invalid('Wähle nur Gruppen, denen du angehörst.');
   return reply.code(201).send(event);
@@ -312,7 +325,8 @@ app.patch('/api/events/:id', async req => {
   if (!validId(id)) throw missing();
   const { rowCount } = await db.query(`UPDATE events SET title=$1,starts_at=$2,place=$3,note=$4,people=$5,
     groups=ARRAY(SELECT unnest($6::text[]) UNION SELECT g FROM unnest(events.groups) g WHERE NOT g=ANY(${hostGroups})),photo=coalesce($8,photo),
-    ends_at=coalesce($9,ends_at), updated_at=clock_timestamp() WHERE host_id=$7 AND id=$10 AND NOT cancelled AND $6::text[] <@ ${hostGroups}
+    ends_at=coalesce($9,ends_at),rsvp_deadline=CASE WHEN $11 THEN $10::timestamptz ELSE rsvp_deadline END,
+    updated_at=clock_timestamp() WHERE host_id=$7 AND id=$12 AND NOT cancelled AND $6::text[] <@ ${hostGroups}
     AND (cardinality($5::int[]) + cardinality($6::text[]) > 0 OR NOT events.groups <@ ${hostGroups})`, [...await eventFields(req.body, user.id, true), id]);
   if (!rowCount) throw missing();
   return { saved: true };
