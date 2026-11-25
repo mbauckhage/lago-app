@@ -1,4 +1,5 @@
 <script setup>
+import { memberColor } from '../member-color.js';
 import { nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import Icon from '../Icon.vue';
 
@@ -105,8 +106,8 @@ onUnmounted(() => { mounted = false; document.removeEventListener('visibilitycha
       <div v-if="ready && !messages.length" class="grid h-full place-content-center justify-items-center gap-2 text-center text-muted"><Icon name="chat" /><strong>Noch keine Nachrichten</strong><span class="text-sm">Schreib die erste Nachricht zu diesem Termin.</span></div>
       <template v-for="(message, i) in messages" :key="message.id">
         <div v-if="!i || day(messages[i-1]) !== day(message)" class="my-4 text-center text-xs font-semibold text-muted">{{ day(message) }}</div>
-        <article class="mb-2 w-fit max-w-[85%] rounded-2xl px-3.5 py-2" :class="message.sender_id === me.id ? 'ml-auto rounded-br-sm bg-wash' : 'rounded-bl-sm bg-panel'">
-          <strong v-if="message.sender_id !== me.id" class="block text-xs text-on-wash">{{ message.name }}</strong>
+        <article class="mb-2 w-fit max-w-[85%] rounded-2xl px-3.5 py-2" :class="message.sender_id === me.id ? 'ml-auto rounded-br-sm bg-[#324f60]' : 'rounded-bl-sm bg-panel'">
+          <strong :style="{ color: memberColor(message.sender_id) }" class="block text-xs wrap-anywhere">{{ message.name }}</strong>
           <p class="m-0 whitespace-pre-wrap wrap-anywhere">{{ message.body }}</p>
           <time class="block text-right text-[11px] text-muted" :datetime="message.sent_at">{{ time.format(new Date(message.sent_at)) }}</time>
         </article>

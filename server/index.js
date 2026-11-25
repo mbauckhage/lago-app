@@ -235,7 +235,7 @@ app.get('/api/events', async req => {
       (e.host_id=$1) AS mine,
       (SELECT count(*)::int FROM chat_messages m WHERE m.event_id=e.id AND m.sender_id<>$1
         AND m.id>coalesce(cr.last_id,0)) AS unread,
-      (SELECT json_build_object('id',m.id,'body',left(m.body,120),'sent_at',m.sent_at,'sender',a.name)
+      (SELECT json_build_object('id',m.id,'body',left(m.body,120),'sent_at',m.sent_at,'sender',a.name,'sender_id',m.sender_id)
         FROM chat_messages m JOIN members a ON a.id=m.sender_id WHERE m.event_id=e.id
         ORDER BY m.id DESC LIMIT 1) AS latest_message,
       (SELECT coalesce(json_agg(json_build_object('id', m.id, 'name', m.name, 'status', r.status)

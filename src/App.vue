@@ -1,4 +1,5 @@
 <script setup>
+import { memberColor } from './member-color.js';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { DateTime } from 'luxon';
 import { readPhoto } from './photos.js';
@@ -537,7 +538,7 @@ function resetCalendar() {
             <button v-for="event in inbox" :key="event.id" class="flex min-h-20 w-full items-center gap-3 border-b border-line py-3 text-left" @click="openChat(event)">
               <img v-if="event.photo" :src="event.photo" alt="" class="size-12 shrink-0 rounded-xl object-cover">
               <span v-else class="grid size-12 shrink-0 place-content-center rounded-xl bg-panel text-center leading-tight"><strong>{{ event.date.slice(8) }}</strong><small>{{ labelDate(event.date, { month: 'short' }) }}</small></span>
-              <span class="min-w-0 flex-1"><strong class="block truncate">{{ event.title }}</strong><small class="block truncate text-muted">{{ event.latest_message ? event.latest_message.sender + ': ' + event.latest_message.body : 'Noch keine Nachrichten' }}</small></span>
+              <span class="min-w-0 flex-1"><strong class="block truncate">{{ event.title }}</strong><small class="block truncate text-muted"><template v-if="event.latest_message"><span :style="{ color: memberColor(event.latest_message.sender_id) }">{{ event.latest_message.sender }}</span>: {{ event.latest_message.body }}</template><template v-else>Noch keine Nachrichten</template></small></span>
               <UnreadBadge :count="event.unread" /><Icon name="next" />
             </button>
           </section>
@@ -623,7 +624,7 @@ function resetCalendar() {
 
       <template v-if="sheet === 'details' && current">
         <img v-if="current.photo" class="block h-[clamp(190px,52vw,305px)] w-full bg-wash object-cover" :src="current.photo" alt="">
-        <p class="text-[13px] leading-[1.4] text-muted">Organisiert von <button type="button" class="min-h-11 underline underline-offset-2" @click="showHost(current)">{{ current.host }}</button><span v-if="current.cancelled" class="ml-auto inline-block rounded-lg bg-danger-wash px-2 py-[5px] text-xs font-bold text-danger">Abgesagt</span></p>
+        <p class="text-[13px] leading-[1.4] text-muted">Organisiert von <button type="button" class="min-h-11 underline underline-offset-2" :style="{ color: memberColor(current.host_id) }" @click="showHost(current)">{{ current.host }}</button><span v-if="current.cancelled" class="ml-auto inline-block rounded-lg bg-danger-wash px-2 py-[5px] text-xs font-bold text-danger">Abgesagt</span></p>
         <div class="flex flex-wrap items-center gap-1.5 text-[13px] leading-[1.4] text-muted [&_svg]:size-[15px]"><Icon name="calendar" /> {{ labelDate(current.date) }} · {{ current.time }}<template v-if="current.endTime"> – {{ current.endDate === current.date ? '' : labelDate(current.endDate) + ' · ' }}{{ current.endTime }}</template></div>
         <div v-if="current.place" class="flex flex-wrap items-center gap-1.5 text-[13px] leading-[1.4] text-muted [&_svg]:size-[15px]"><Icon name="pin" /> {{ current.place }}</div>
         <p v-if="current.note" class="whitespace-pre-wrap wrap-anywhere">{{ current.note }}</p>
