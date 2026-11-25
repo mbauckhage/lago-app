@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS events (
 
 ALTER TABLE events ADD COLUMN IF NOT EXISTS ends_at timestamptz CHECK (ends_at > starts_at);
 ALTER TABLE events ADD COLUMN IF NOT EXISTS photo text NOT NULL DEFAULT '';
+ALTER TABLE events ADD COLUMN IF NOT EXISTS rsvp_deadline timestamptz;
 
 CREATE TABLE IF NOT EXISTS responses (
   event_id integer NOT NULL REFERENCES events ON DELETE CASCADE,

@@ -378,8 +378,9 @@ function editEvent(event) {
     await updateInviteGroups();
     members.value = await api('/members');
     expandedGroup.value = null;
-    draft.value = event ? { ...event, people: [...event.people], groups: event.groups.filter(group => inviteGroups.value.includes(group)) } : {
-      title: '', date, time: '18:00', endDate: date, endTime: '19:00', place: '', note: '', photo: '', people: [], groups: []
+    const rsvpDeadline = event?.rsvpDeadline || '';
+    draft.value = event ? { ...event, rsvpDeadline, rsvpDeadlineEnabled: Boolean(rsvpDeadline), rsvpDeadlineDate: rsvpDeadline.slice(0, 10), rsvpDeadlineTime: rsvpDeadline.slice(11, 16), people: [...event.people], groups: event.groups.filter(group => inviteGroups.value.includes(group)) } : {
+      title: '', date, time: '18:00', endDate: date, endTime: '19:00', rsvpDeadline: '', rsvpDeadlineEnabled: false, rsvpDeadlineDate: '', rsvpDeadlineTime: '', place: '', note: '', photo: '', people: [], groups: []
     };
     await openSheet('editor');
   }, dialog.value?.open ? sheetError : error);
@@ -391,13 +392,23 @@ function changeStartDate(date) {
   event.date = date;
 }
 
+function toggleRsvpDeadline(enabled) {
+  draft.value.rsvpDeadlineEnabled = enabled;
+  if (!enabled) {
+    draft.value.rsvpDeadlineDate = '';
+    draft.value.rsvpDeadlineTime = '';
+  }
+}
+
 function saveEvent(form) {
   const fields = new FormData(form);
   const { id, title, date, time, endDate, endTime, place, note, people, groups: selected } = draft.value;
+  const rsvpDeadline = draft.value.rsvpDeadlineEnabled && draft.value.rsvpDeadlineDate && draft.value.rsvpDeadlineTime
+    ? `${draft.value.rsvpDeadlineDate}T${draft.value.rsvpDeadlineTime}` : '';
   return run(async () => {
     const photo = await readPhoto(fields.get('photo')) ?? (fields.has('remove_photo') ? '' : undefined);
     await api(id ? '/events/' + id : '/events', id ? 'PATCH' : 'POST', {
-      title, date, time, endDate, endTime, place, note, people, groups: selected, photo
+      title, date, time, endDate, endTime, rsvpDeadline, place, note, people, groups: selected, photo
     });
     dialog.value.close();
     tab.value = 'Feed';
@@ -626,6 +637,7 @@ function resetCalendar() {
         <img v-if="current.photo" class="block h-[clamp(190px,52vw,305px)] w-full bg-wash object-cover" :src="current.photo" alt="">
         <p class="text-[13px] leading-[1.4] text-muted">Organisiert von <button type="button" class="min-h-11 underline underline-offset-2" :style="{ color: memberColor(current.host_id) }" @click="showHost(current)">{{ current.host }}</button><span v-if="current.cancelled" class="ml-auto inline-block rounded-lg bg-danger-wash px-2 py-[5px] text-xs font-bold text-danger">Abgesagt</span></p>
         <div class="flex flex-wrap items-center gap-1.5 text-[13px] leading-[1.4] text-muted [&_svg]:size-[15px]"><Icon name="calendar" /> {{ labelDate(current.date) }} · {{ current.time }}<template v-if="current.endTime"> – {{ current.endDate === current.date ? '' : labelDate(current.endDate) + ' · ' }}{{ current.endTime }}</template></div>
+        <p v-if="current.rsvpDeadline" class="mt-2 text-[13px] leading-[1.4] text-muted">Antwort erbeten bis {{ DateTime.fromISO(current.rsvpDeadline, { zone }).setLocale(locale).toLocaleString(DateTime.DATETIME_MED) }}<template v-if="DateTime.fromISO(current.rsvpDeadline, { zone }) <= today()"> · Antworten sind weiterhin möglich</template></p>
         <div v-if="current.place" class="flex flex-wrap items-center gap-1.5 text-[13px] leading-[1.4] text-muted [&_svg]:size-[15px]"><Icon name="pin" /> {{ current.place }}</div>
         <p v-if="current.note" class="whitespace-pre-wrap wrap-anywhere">{{ current.note }}</p>
         <h3 class="mt-6 mb-2 text-[17px] font-bold tracking-[-.02em]">Gäste</h3>
@@ -648,6 +660,12 @@ function resetCalendar() {
           <FormField>Enddatum<input v-model="draft.endDate" :min="draft.date" type="date" required></FormField>
           <FormField>Endzeit<input v-model="draft.endTime" type="time" required></FormField>
         </div>
+        <FormField checkbox class="my-2.5"><input :checked="draft.rsvpDeadlineEnabled" type="checkbox" @change="toggleRsvpDeadline($event.target.checked)"> Antwort erbeten</FormField>
+        <div v-if="draft.rsvpDeadlineEnabled" class="my-3 grid grid-cols-2 gap-x-3 gap-y-3 [&>label]:m-0 [&>label]:min-w-0 [&_input]:appearance-none">
+          <FormField>Datum<input v-model="draft.rsvpDeadlineDate" type="date" required :max="draft.date"></FormField>
+          <FormField>Uhrzeit<input v-model="draft.rsvpDeadlineTime" type="time" required :max="draft.rsvpDeadlineDate === draft.date ? draft.time : undefined"></FormField>
+        </div>
+        <p v-if="draft.rsvpDeadlineEnabled" class="-mt-1 text-[13px] leading-[1.4] text-muted">Auch nach diesem Zeitpunkt können Gäste noch antworten.</p>
         <FormField>Ort <input v-model="draft.place" maxlength="80" placeholder="Ort hinzufügen"></FormField>
         <FormField>Notizen<textarea v-model="draft.note" maxlength="350" rows="2" placeholder="Was sollen die Gäste wissen?"></textarea></FormField>
         <ImageSelector :key="draft.id ?? 'new'" :photo="draft.photo" />
