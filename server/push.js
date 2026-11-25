@@ -54,7 +54,7 @@ export async function setupPush(app, db, member, invalid, sendNotification = web
           WHERE g.member_id=$1 AND NOT e.cancelled AND NOT EXISTS
             (SELECT 1 FROM responses r WHERE r.event_id=g.event_id AND r.member_id=g.member_id)
         ) AS badge_count FROM push_subscriptions s JOIN members m ON m.id=s.member_id
-          WHERE m.id=$1 AND m.approved AND m.push_updates AND ((m.id=(SELECT host_id FROM events WHERE id=$2) AND $3 IN ('created','chat')) OR EXISTS
+          WHERE m.id=$1 AND m.approved AND m.push_updates AND ((EXISTS(SELECT 1 FROM event_hosts WHERE event_id=$2 AND member_id=m.id) AND $3 IN ('created','chat')) OR EXISTS
           (SELECT 1 FROM event_guests WHERE event_id=$2 AND member_id=m.id))`, [job.member_id, job.event_id, job.kind]);
         const labels = { created: 'Termin veröffentlicht', cancelled: 'Abgesagt', updated: 'Termin aktualisiert', invitation: 'Neue Einladung', chat: 'Neue Chatnachricht' };
         const isChat = job.kind === 'chat';

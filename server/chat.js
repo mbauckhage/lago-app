@@ -1,7 +1,7 @@
 export function setupChat(app, db, member, missing, invalid) {
   const path = '/api/events/:id/chat';
   const accessible = `SELECT e.id FROM events e WHERE e.id=$1 AND
-    (e.host_id=$2 OR EXISTS (SELECT 1 FROM event_guests WHERE event_id=e.id AND member_id=$2))`;
+    (EXISTS (SELECT 1 FROM event_hosts WHERE event_id=e.id AND member_id=$2) OR EXISTS (SELECT 1 FROM event_guests WHERE event_id=e.id AND member_id=$2))`;
   const validId = value => Number.isInteger(value) && value > 0 && value <= 2147483647;
   async function keys(req) {
     const user = await member(req);
