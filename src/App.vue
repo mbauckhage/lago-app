@@ -68,6 +68,7 @@ onUnmounted(() => {
 });
 const signingUp = ref(false);
 const tab = ref('Feed');
+const headerTitle = computed(() => me.value?.approved && ['Calendar', 'Profile'].includes(tab.value) ? tabs[tab.value] : 'Lago Nostre');
 const events = ref([]);
 const chatId = ref(null);
 const chatEvent = computed(() => events.value.find(event => event.id === chatId.value));
@@ -468,7 +469,7 @@ function resetCalendar() {
       <img :src="headerGif" alt="" width="880" height="328"
         class="pointer-events-none absolute inset-0 -z-10 h-full w-full object-cover object-[center_65%] opacity-30 motion-reduce:hidden">
       <div class="app-header-content mx-auto w-full max-w-[580px] px-5 max-[360px]:px-3.5 flex items-center justify-between pb-2 [&_button]:flex [&_button]:items-center [&_button]:gap-[5px]">
-        <span class="flex items-center gap-2 text-[25px] font-[780] tracking-[-.04em]">Lago Nostre</span>
+        <span data-install-focus tabindex="-1" class="flex items-center gap-2 text-[25px] font-[780] tracking-[-.04em]">{{ headerTitle }}</span>
         <AppButton variant="primary" v-if="me?.approved"  :disabled="busy" @click="editEvent()"><Icon name="plus" /> Neuer Termin</AppButton>
       </div>
     </header>
@@ -507,8 +508,6 @@ function resetCalendar() {
           :own="!memberProfile" :label-date="labelDate" @back="closeMember" @settings="settingsOpen = true" @open="openChat" />
 
         <template v-else-if="tab === 'Feed'">
-          <h1 data-install-focus tabindex="-1">Deine Übersicht</h1>
-          <p class="mt-0 mb-5 text-sm leading-[1.45] text-muted">Pläne mit der Lago-Gruppe</p>
           <p v-if="!events.length" class="rounded-xl bg-wash px-4 py-3.5 text-sm leading-[1.45] text-on-wash">Hier erscheinen deine Termine und Einladungen.</p>
           <EventCard v-for="event in events" :key="event.id" :event="event" :busy="busy" :label-date="labelDate" @open="openChat" @respond="rsvp" @profile="showHost" />
         </template>
@@ -517,7 +516,6 @@ function resetCalendar() {
           <EventChat v-if="chatEvent" :key="me.id + '-' + chatEvent.id" :event="chatEvent" :me="me" :api="api" :details-open="modalOpen"
             @back="chatId = null" @details="showEvent(chatEvent)" />
           <section v-else>
-            <h1>Chat</h1>
             <p v-if="!inbox.length" class="text-sm text-muted">Sobald du zu einem Termin eingeladen bist oder selbst einen erstellst, erscheint hier der Chat.</p>
             <button v-for="event in inbox" :key="event.id" class="flex min-h-20 w-full items-center gap-3 border-b border-line py-3 text-left" @click="openChat(event)">
               <img v-if="event.photo" :src="event.photo" alt="" class="size-12 shrink-0 rounded-xl object-cover">
@@ -529,9 +527,7 @@ function resetCalendar() {
         </template>
 
         <template v-else-if="tab === 'Calendar'">
-          <h1>Kalender</h1>
-          <p class="mt-0 mb-5 text-sm leading-[1.45] text-muted">Alle deine Termine und Einladungen</p>
-          <div class="mt-4 mb-2 flex items-center justify-between gap-2 [&_h2]:flex-1 [&_h2]:text-lg [&_h2]:font-bold">
+          <div class="mb-2 flex items-center justify-between gap-2 [&_h2]:flex-1 [&_h2]:text-lg [&_h2]:font-bold">
             <h2 aria-live="polite">{{ month.setLocale(locale).toFormat('MMMM yyyy') }}</h2>
             <AppButton variant="soft" @click="selectToday">Heute</AppButton>
             <AppButton variant="icon" aria-label="Vorheriger Monat" @click="moveMonth(-1)"><Icon name="prev" /></AppButton>

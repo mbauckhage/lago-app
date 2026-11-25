@@ -28,6 +28,8 @@ The browser favicon stacks the red “Lago” and blue “Nostre” from the pro
 
 A fresh tab or standalone app session plays the transparent lakeside GIF once on the same deep lake-blue background (#233F50) as the app while account data loads. The opening can be skipped as soon as the app is ready. Reloading or resuming the same session skips the intro. Slow startup loads can show the same GIF while waiting. Event notification links go straight to the requested event when ready, and reduced-motion users see a text loading state.
 
+The header title follows the active tab. Übersicht and Chat show «Lago Nostre», Kalender shows «Kalender», and Profil shows «Profil». Each tab starts directly with its content, without a separate tab title or introductory subtitle.
+
 The header displays the lakeside GIF as a decorative backdrop at 30% opacity behind the title and event button. The GIF holds its final frame for an extra five seconds between loops. The backdrop is hidden when reduced motion is requested. The header reserves the device’s top safe area in addition to its 80px base height and padding. Installed standalone apps add another 16px of top clearance so the title and actions sit below the iOS system status-bar blur. The clearance stays within the app viewport, preserving the bottom navigation and scrollable content area.
 
 ## Local development
