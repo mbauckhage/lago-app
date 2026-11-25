@@ -10,6 +10,7 @@ import ImageSelector from './components/ImageSelector.vue';
 import ProfilePhoto from './components/ProfilePhoto.vue';
 import InstallApp from './components/InstallApp.vue';
 import PushSettings from './components/PushSettings.vue';
+import CalendarSubscription from './components/CalendarSubscription.vue';
 import AppButton from './components/ui/AppButton.vue';
 import AppSheet from './components/ui/AppSheet.vue';
 import AppTab from './components/ui/AppTab.vue';
@@ -150,7 +151,6 @@ function selectToday() {
 }
 const calendarUrl = computed(() => me.value?.calendar_token
   ? new URL('/calendar/' + me.value.calendar_token + '.ics', location.origin).href : '');
-const calendarAppUrl = computed(() => calendarUrl.value.replace(/^https?:/, 'webcal:'));
 const current = computed(() => events.value.find(event => event.id === eventId.value));
 const monthEvents = computed(() => events.value.filter(event => event.date.startsWith(month.value.toFormat('yyyy-MM')))
   .sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time)));
@@ -327,7 +327,23 @@ function signOut() {
   });
 }
 
+async function promptCalendarSubscription() {
+  const account = me.value;
+  if (!account?.approved || account.calendar_prompt_seen) return;
+  account.calendar_prompt_seen = true;
+  try {
+    const { showPrompt } = await api('/me/calendar/prompt', 'PUT');
+    if (showPrompt && me.value?.id === account.id && tab.value === 'Calendar' && !modalOpen.value) {
+      await openSheet('subscribe-calendar');
+    }
+  } catch {
+    // Retry on the next calendar visit if the server could not record this one.
+    account.calendar_prompt_seen = false;
+  }
+}
+
 watch(tab, () => {
+  if (tab.value === 'Calendar') void promptCalendarSubscription();
   memberProfile.value = null;
   settingsOpen.value = false;
   profileTab.value = 'own';
@@ -581,14 +597,9 @@ function resetCalendar() {
           </section>
           <section class="mt-[22px] border-t border-line pt-3.5 [&_h2]:mt-0">
             <h2 class="mt-6 mb-2 text-[17px] font-bold tracking-[-.02em]">Persönlicher Kalender</h2>
-            <p class="text-[13px] leading-[1.4] text-muted">Öffne deine Kalender-App und bestätige das Abo. Es enthält Termine, die du organisierst, sowie Einladungen, auf die du mit «Dabei» oder «Vielleicht» antwortest.</p>
-            <a :href="calendarAppUrl" class="inline-flex min-h-11 items-center rounded-xl bg-brand px-[13px] text-[13px] font-bold text-on-brand focus-visible:outline-2 focus-visible:outline-brand focus-visible:outline-offset-3">In Kalender-App öffnen</a>
-            <p class="text-[13px] leading-[1.4] text-muted">Falls sich keine Kalender-App öffnet, kopiere den Link und füge ihn dort als Kalenderabo hinzu.</p>
-            <FormField>Privater Kalenderlink<input :value="calendarUrl" readonly @focus="$event.target.select()"></FormField>
-            <div class="flex flex-wrap items-center gap-2">
-              <AppButton variant="soft" :disabled="busy" @click="run(async () => { await navigator.clipboard.writeText(calendarUrl); announce('Kalenderlink kopiert'); })">Link kopieren</AppButton>
+            <CalendarSubscription :url="calendarUrl">
               <AppButton variant="plain" :disabled="busy" @click="openSheet('reset-calendar')">Link zurücksetzen</AppButton>
-            </div>
+            </CalendarSubscription>
           </section>
           <div class="mt-[22px] border-t border-line pt-3.5 [&_h2]:mt-0 flex flex-wrap items-center gap-2">
             <AppButton variant="soft" v-if="me.admin"  :disabled="busy" @click="openAdmin">Mitglieder verwalten</AppButton>
@@ -607,7 +618,7 @@ function resetCalendar() {
 
     <AppSheet ref="dialog" @close="modalOpen = false" :vertical-scroll-only="sheet === 'editor'">
       <template #title>{{ sheet === 'details' ? current?.title : sheet === 'editor' ? (draft?.id ? 'Termin bearbeiten' : 'Neuer Termin')
-          : sheet === 'admin' ? 'Mitglieder verwalten' : sheet === 'reset-calendar' ? 'Kalenderlink zurücksetzen?' : 'Diesen Termin absagen?' }}</template>
+          : sheet === 'subscribe-calendar' ? 'Lago zum eigenen Kalender hinzufügen?' : sheet === 'admin' ? 'Mitglieder verwalten' : sheet === 'reset-calendar' ? 'Kalenderlink zurücksetzen?' : 'Diesen Termin absagen?' }}</template>
       <p v-if="sheetError" class="mb-3.5 rounded-xl bg-danger-wash px-4 py-3.5 text-sm leading-[1.45] text-danger" role="alert">{{ sheetError }}</p>
 
       <template v-if="sheet === 'details' && current">
@@ -682,6 +693,10 @@ function resetCalendar() {
           <AppButton variant="primary" class="mt-2.5" :disabled="busy" type="submit">{{ person.approved ? 'Gruppen speichern' : 'Mitglied freigeben' }}</AppButton>
         </form>
       </template>
+
+      <CalendarSubscription v-else-if="sheet === 'subscribe-calendar'" :url="calendarUrl">
+        <AppButton variant="plain" @click="dialog.close()">Später</AppButton>
+      </CalendarSubscription>
 
       <template v-else-if="sheet === 'reset-calendar'">
         <p>Der bisherige Link wird ungültig. Füge den neuen Link in deiner Kalender-App hinzu, um weiterhin Änderungen zu erhalten.</p>

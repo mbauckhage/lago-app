@@ -11,6 +11,8 @@ CREATE TABLE IF NOT EXISTS members (
   calendar_token text NOT NULL UNIQUE
 );
 
+ALTER TABLE members ADD COLUMN IF NOT EXISTS calendar_prompt_seen boolean NOT NULL DEFAULT false;
+
 CREATE TABLE IF NOT EXISTS sessions (
   token text PRIMARY KEY,
   member_id integer NOT NULL REFERENCES members ON DELETE CASCADE,

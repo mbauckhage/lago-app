@@ -39,6 +39,11 @@ test('live invitations, group permissions and access removal across sessions', {
     const api = (index, path, method = 'GET', body) => fetch(origin + '/api' + path, {
       method, headers: { cookie: cookies[index], ...(body && { 'Content-Type': 'application/json' }) }, body: JSON.stringify(body)
     });
+    const visitCalendar = async index => (await api(index, '/me/calendar/prompt', 'PUT')).json();
+    const visits = await Promise.all([visitCalendar(0), visitCalendar(0)]);
+    assert.equal(visits.filter(visit => visit.showPrompt).length, 1);
+    assert.deepEqual(await visitCalendar(0), { showPrompt: false });
+    assert.deepEqual(await visitCalendar(1), { showPrompt: true });
     const follow = async index => {
       const response = await fetch(origin + '/api/events/live', { headers: { cookie: cookies[index] }, signal: streams.signal });
       const reader = response.body.getReader();

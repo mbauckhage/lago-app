@@ -98,8 +98,8 @@ async function member(req, access = 'approved') {
 }
 
 function account(user) {
-  const { id, name, approved, admin, photo, email_updates, push_updates, calendar_token } = user;
-  return { id, name, approved, admin, photo, email_updates, push_updates, calendar_token: approved ? calendar_token : null };
+  const { id, name, approved, admin, photo, email_updates, push_updates, calendar_prompt_seen, calendar_token } = user;
+  return { id, name, approved, admin, photo, email_updates, push_updates, calendar_prompt_seen, calendar_token: approved ? calendar_token : null };
 }
 
 const deliver = await setupPush(app, db, member, invalid);
@@ -172,6 +172,12 @@ app.patch('/api/me', async req => {
     [displayName, photo, email_updates, push_updates, user.id]
   );
   return account(updated);
+});
+
+app.put('/api/me/calendar/prompt', async req => {
+  const user = await member(req);
+  const { rowCount } = await db.query('UPDATE members SET calendar_prompt_seen=true WHERE id=$1 AND NOT calendar_prompt_seen', [user.id]);
+  return { showPrompt: rowCount === 1 };
 });
 
 app.post('/api/me/calendar', async req => {
