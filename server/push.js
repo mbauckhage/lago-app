@@ -49,7 +49,11 @@ export async function setupPush(app, db, member, invalid, sendNotification = web
       const { rows } = await client.query(`SELECT j.*,e.title FROM push_jobs j JOIN events e ON e.id=j.event_id
         WHERE available_at<=now() ORDER BY j.id LIMIT 20 FOR UPDATE OF j SKIP LOCKED`);
       for (const job of rows) {
-        const { rows: subscriptions } = await client.query(`SELECT s.* FROM push_subscriptions s JOIN members m ON m.id=s.member_id
+        const { rows: subscriptions } = await client.query(`SELECT s.*, (
+          SELECT count(*)::integer FROM event_guests g JOIN events e ON e.id=g.event_id
+          WHERE g.member_id=$1 AND NOT e.cancelled AND NOT EXISTS
+            (SELECT 1 FROM responses r WHERE r.event_id=g.event_id AND r.member_id=g.member_id)
+        ) AS badge_count FROM push_subscriptions s JOIN members m ON m.id=s.member_id
           WHERE m.id=$1 AND m.approved AND m.push_updates AND ((m.id=(SELECT host_id FROM events WHERE id=$2) AND $3='created') OR EXISTS
           (SELECT 1 FROM event_guests WHERE event_id=$2 AND member_id=m.id))`, [job.member_id, job.event_id, job.kind]);
         let retry = false;
@@ -57,7 +61,7 @@ export async function setupPush(app, db, member, invalid, sendNotification = web
           try {
             await sendNotification(item.subscription, JSON.stringify({
               title: 'Lago Nostre', body: `${job.kind === 'created' ? 'Termin veröffentlicht' : job.kind === 'cancelled' ? 'Abgesagt' : job.kind === 'updated' ? 'Termin aktualisiert' : 'Neue Einladung'}: ${job.title}`,
-              tag: `event-${job.event_id}`, url: `/?event=${job.event_id}`
+              badgeCount: item.badge_count, tag: `event-${job.event_id}`, url: `/?event=${job.event_id}`
             }), { TTL: 86400, timeout: 10000 });
           } catch (err) {
             if ([404, 410].includes(err.statusCode)) await client.query('DELETE FROM push_subscriptions WHERE endpoint=$1', [item.endpoint]);

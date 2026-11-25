@@ -36,7 +36,7 @@ test('push routes, persistent keys and event queue', { skip: !process.env.DATABA
     pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, options: '-c search_path=' + schema });
     const deliveries = [];
     const deliver = await setupPush(app, pool, member, message => Object.assign(new Error(message), { statusCode: 400 }),
-      async (device, payload) => deliveries.push([device.endpoint, JSON.parse(payload).body]));
+      async (device, payload) => deliveries.push([device.endpoint, JSON.parse(payload).body, JSON.parse(payload).badgeCount]));
     assert.equal((await app.inject('/api/push')).statusCode, 401);
     const headers = { 'x-member': '2' };
     const config = (await app.inject({ url: '/api/push', headers })).json();
@@ -61,11 +61,24 @@ test('push routes, persistent keys and event queue', { skip: !process.env.DATABA
     }
     await deliver();
     assert.deepEqual(deliveries.sort(), [
-      [subscription.endpoint + 1, 'Termin veröffentlicht: Updated'],
-      [subscription.endpoint + 2, 'Abgesagt: Updated'],
-      [subscription.endpoint + 2, 'Neue Einladung: Updated'],
-      [subscription.endpoint + 2, 'Termin aktualisiert: Updated']
+      [subscription.endpoint + 1, 'Termin veröffentlicht: Updated', 0],
+      [subscription.endpoint + 2, 'Abgesagt: Updated', 0],
+      [subscription.endpoint + 2, 'Neue Einladung: Updated', 0],
+      [subscription.endpoint + 2, 'Termin aktualisiert: Updated', 0]
     ]);
+    await db.query(`INSERT INTO events (host_id,title,starts_at,place,note,people,groups)
+      VALUES (1,'Dinner',now(),'','',ARRAY[2],ARRAY['Lago Nostre'])`);
+    deliveries.length = 0;
+    await deliver();
+    assert.deepEqual(deliveries.sort(), [
+      [subscription.endpoint + 1, 'Termin veröffentlicht: Dinner', 0],
+      [subscription.endpoint + 2, 'Neue Einladung: Dinner', 1]
+    ]);
+    await db.query("INSERT INTO responses SELECT id,2,'Maybe' FROM events WHERE title='Dinner'");
+    await db.query("UPDATE events SET title='Lunch' WHERE title='Dinner'");
+    deliveries.length = 0;
+    await deliver();
+    assert.deepEqual(deliveries, [[subscription.endpoint + 2, 'Termin aktualisiert: Lunch', 0]]);
     const stored = (await db.query('SELECT public_key FROM push_config')).rows[0].public_key;
     assert.equal(stored, config.publicKey);
   } finally {

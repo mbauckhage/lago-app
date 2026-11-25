@@ -142,6 +142,13 @@ async function api(path, method = 'GET', body) {
   return response.status === 204 ? undefined : response.json();
 }
 
+async function updateAppBadge(count) {
+  try {
+    if (count) await navigator.setAppBadge?.(count);
+    else await navigator.clearAppBadge?.();
+  } catch { /* Badge permission is optional. */ }
+}
+
 let requestedFeed = 0;
 let appliedFeed = 0;
 let loadedAccount;
@@ -158,11 +165,16 @@ async function updateFeed() {
   }
   loadedAccount = account;
   events.value = rows;
+  void updateAppBadge(rows.filter(event => !event.mine && !event.cancelled && !event.status).length);
   if (sheet.value === 'details' && dialog.value?.open && !current.value) dialog.value.close();
 }
 
 watch(() => me.value?.approved && me.value.id, (account, previous, cleanup) => {
-  if (!account) { loadedAccount = undefined; return; }
+  if (!account) {
+    loadedAccount = undefined;
+    void updateAppBadge(0);
+    return;
+  }
   const source = new EventSource('/api/events/live');
   let retry;
   async function refresh() {
@@ -219,6 +231,7 @@ async function loadAccount() {
     if (problem.status !== 401) throw problem;
     me.value = null;
   }
+  if (!me.value?.approved) void updateAppBadge(0);
   if (me.value?.approved) {
     await updateFeed();
 
