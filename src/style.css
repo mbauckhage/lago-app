@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "./calendar.css";
 
 @theme {
   --font-sans: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
@@ -29,6 +30,7 @@
   input, textarea { @apply placeholder:text-muted; }
   h1 { @apply mt-1 mb-1.5 text-4xl font-bold tracking-[-.04em] leading-[1.05]; }
   p { @apply my-4; }
+  dialog:focus { outline: none; }
   dialog p { @apply leading-normal; }
   fieldset { @apply my-2.5 rounded-xl border border-line px-2.5 py-1; }
   legend { @apply text-[13px] font-bold; }

@@ -12,14 +12,14 @@ const visibleEvents = computed(() => memberEvents(props.events, props.person.id,
 
 <template>
   <section :aria-label="own ? 'Dein Profil' : 'Mitgliederprofil'">
-    <div class="mb-4 flex items-center" :class="own ? 'justify-end' : 'justify-start'">
-      <AppButton v-if="own" variant="plain" @click="$emit('settings')"><Icon name="settings" /> Einstellungen</AppButton>
-      <AppButton v-else variant="plain" class="!pl-0" @click="$emit('back')"><Icon name="prev" /> Zurück</AppButton>
+    <AppButton v-if="!own" variant="plain" class="mb-4 !pl-0" @click="$emit('back')"><Icon name="prev" /> Zurück</AppButton>
+    <div class="mb-6 flex items-center gap-3.5">
+      <AppAvatar :name="person.name" :photo="person.photo" large />
+      <h1 tabindex="-1" class="my-0 min-w-0 flex-1 wrap-anywhere">{{ person.name }}</h1>
+      <AppButton v-if="own" variant="plain" class="shrink-0" aria-label="Einstellungen" @click="$emit('settings')">
+        <Icon name="settings" /><span class="hidden sm:inline">Einstellungen</span>
+      </AppButton>
     </div>
-          <div class="mb-6 flex items-center gap-3.5">
-            <AppAvatar :name="person.name" :photo="person.photo" large />
-            <h1 tabindex="-1" class="wrap-anywhere">{{ person.name }}</h1>
-          </div>
           <div class="mb-5 flex gap-2" aria-label="Terminauswahl">
             <AppButton v-for="choice in [{ id: 'own', label: 'Eigene Termine' }, { id: 'all', label: 'Alle Termine' }]" :key="choice.id"
               :variant="selectedTab === choice.id ? 'primary' : 'soft'" :aria-pressed="selectedTab === choice.id" @click="$emit('update:selectedTab', choice.id)">{{ choice.label }}</AppButton>

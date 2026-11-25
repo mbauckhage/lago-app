@@ -1,0 +1,11 @@
+.lago-month {display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:0 2px;align-items:stretch}
+.weekday {text-align:center;color:#c4d7df;font-size:.75rem;font-weight:600;padding:.45rem 0}
+.month-day {display:flex;align-items:stretch;flex-direction:column;gap:2px;min-width:0;min-height:4.75rem;padding:3px 1px;border:0;border-top:1px solid #547180;background:transparent;color:inherit;cursor:pointer}
+.month-day:hover,.month-day[aria-pressed=true] {background:#2d4c5e}
+.day-number {align-self:center;display:grid;place-items:center;width:1.7rem;height:1.7rem;border-radius:100%;font-size:.9rem;font-weight:600;font-variant-numeric:tabular-nums}
+[aria-pressed=true]>.day-number {outline:1px solid #c4e5ee;outline-offset:1px}
+[aria-current=date]>.day-number {background:#f29b85;color:#35241f;font-weight:750}
+.month-chip {overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left;background:#335e73;color:#d3f1ff;border-radius:4px;padding:1px 4px;font-size:.75rem;font-weight:600;line-height:1.3}
+.month-chip.hosted {background:#30595b;color:#c5f2df}
+.month-chip.cancelled {text-decoration:line-through;background:#405461;color:#d0dedf}
+.month-more {align-self:center;font-size:.72rem;color:#d0dedf}

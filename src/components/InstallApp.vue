@@ -42,6 +42,7 @@ async function open(fromAutomatic = false) {
   problem.value = '';
   await nextTick();
   dialog.value.showModal();
+  dialog.value.focus();
 }
 defineExpose({ open: () => open(false) });
 async function install() {

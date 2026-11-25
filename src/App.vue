@@ -112,6 +112,27 @@ const eventId = ref(null);
 const draft = ref(null);
 const month = ref(today().startOf('month'));
 const day = ref('');
+const currentDate = ref(today().toISODate());
+let dateTimer;
+function refreshCalendarDate() {
+  clearTimeout(dateTimer);
+  const now = today();
+  currentDate.value = now.toISODate();
+  dateTimer = setTimeout(refreshCalendarDate, now.plus({ days: 1 }).startOf('day').diff(now).milliseconds + 50);
+}
+onMounted(() => {
+  refreshCalendarDate();
+  document.addEventListener('visibilitychange', refreshCalendarDate);
+});
+onUnmounted(() => {
+  clearTimeout(dateTimer);
+  document.removeEventListener('visibilitychange', refreshCalendarDate);
+});
+function selectToday() {
+  refreshCalendarDate();
+  month.value = today().startOf('month');
+  day.value = currentDate.value;
+}
 const calendarUrl = computed(() => me.value?.calendar_token
   ? new URL('/calendar/' + me.value.calendar_token + '.ics', location.origin).href : '');
 const calendarAppUrl = computed(() => calendarUrl.value.replace(/^https?:/, 'webcal:'));
@@ -120,7 +141,7 @@ const monthEvents = computed(() => events.value.filter(event => event.date.start
   .sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time)));
 const visibleDays = computed(() => Array.from({ length: month.value.daysInMonth }, (_, i) => {
   const date = month.value.set({ day: i + 1 }).toISODate();
-  return { date, number: i + 1, count: monthEvents.value.filter(event => event.date === date).length };
+  return { date, number: i + 1, events: monthEvents.value.filter(event => event.date === date) };
 }));
 const calendarEvents = computed(() => day.value ? monthEvents.value.filter(event => event.date === day.value) : monthEvents.value);
 const labelDate = (date, options = { weekday: 'short', day: 'numeric', month: 'short' }) =>
@@ -300,7 +321,7 @@ async function openSheet(name) {
   sheet.value = name;
   await nextTick();
   if (!dialog.value.open) dialog.value.showModal();
-  else dialog.value.querySelector('input, button')?.focus();
+  else dialog.value.focus();
 }
 
 function showEvent(event) {
@@ -313,12 +334,13 @@ function showEvent(event) {
 }
 
 function editEvent(event) {
+  const date = tab.value === 'Calendar' && !displayedProfile.value && day.value ? day.value : today().toISODate();
   return run(async () => {
     await updateInviteGroups();
     members.value = await api('/members');
     expandedGroup.value = null;
     draft.value = event ? { ...event, people: [...event.people], groups: event.groups.filter(group => inviteGroups.value.includes(group)) } : {
-      title: '', date: today().toISODate(), time: '18:00', endDate: today().toISODate(), endTime: '19:00', place: '', note: '', photo: '', people: [], groups: []
+      title: '', date, time: '18:00', endDate: date, endTime: '19:00', place: '', note: '', photo: '', people: [], groups: []
     };
     await openSheet('editor');
   }, dialog.value?.open ? sheetError : error);
@@ -431,7 +453,7 @@ function resetCalendar() {
     </header>
 
     <main ref="content" class="overflow-auto overscroll-y-contain pt-[19px] pb-7">
-      <div class="mx-auto w-full px-5 max-[360px]:px-3.5" :class="displayedProfile ? 'max-w-[960px]' : 'max-w-[580px]'">
+      <div class="mx-auto w-full px-5 max-[360px]:px-3.5" :class="(displayedProfile || (me?.approved && tab === 'Calendar')) ? 'max-w-[960px]' : 'max-w-[580px]'">
         <p v-if="error" class="mb-3.5 rounded-xl bg-danger-wash px-4 py-3.5 text-sm leading-[1.45] text-danger" role="alert">{{ error }}</p>
         <p v-if="!ready" class="text-[13px] leading-[1.4] text-muted" role="status">Lago Nostre wird geöffnet…</p>
 
@@ -475,15 +497,22 @@ function resetCalendar() {
           <p class="mt-0 mb-5 text-sm leading-[1.45] text-muted">Alle deine Termine und Einladungen</p>
           <div class="mt-4 mb-2 flex items-center justify-between gap-2 [&_h2]:flex-1 [&_h2]:text-lg [&_h2]:font-bold">
             <h2 aria-live="polite">{{ month.setLocale(locale).toFormat('MMMM yyyy') }}</h2>
+            <AppButton variant="soft" @click="selectToday">Heute</AppButton>
             <AppButton variant="icon" aria-label="Vorheriger Monat" @click="moveMonth(-1)"><Icon name="prev" /></AppButton>
             <AppButton variant="icon" aria-label="Nächster Monat" @click="moveMonth(1)"><Icon name="next" /></AppButton>
           </div>
-          <div class="grid grid-cols-7 gap-0.5 rounded-2xl bg-panel p-2 text-center [&_span]:py-[5px] [&_span]:text-[11px] [&_span]:text-muted [&_button]:relative [&_button]:min-h-10 [&_button]:rounded-[10px] [&_button]:text-sm [&_button]:tabular-nums [&_button[aria-pressed=true]]:bg-brand [&_button[aria-pressed=true]]:font-bold [&_button[aria-pressed=true]]:text-on-brand" aria-label="Tage des Monats">
-            <span v-for="weekday in weekdays" :key="weekday">{{ weekday }}</span>
+          <div class="lago-month" aria-label="Tage des Monats">
+            <span v-for="weekday in weekdays" :key="weekday" class="weekday">{{ weekday }}</span>
             <span v-for="index in month.weekday - 1" :key="'blank' + index" aria-hidden="true"></span>
-            <button v-for="entry in visibleDays" :key="entry.date" :class="entry.count ? 'after:absolute after:bottom-[5px] after:left-[calc(50%-2px)] after:size-1 after:rounded-full after:bg-current' : ''" :aria-pressed="day === entry.date"
-              :aria-label="labelDate(entry.date) + (entry.count ? ', ' + entry.count + (entry.count === 1 ? ' Termin' : ' Termine') : '')"
-              @click="day = day === entry.date ? '' : entry.date">{{ entry.number }}</button>
+            <button v-for="entry in visibleDays" :key="entry.date" class="month-day" :aria-pressed="day === entry.date"
+              :aria-current="entry.date === currentDate ? 'date' : undefined"
+              :aria-label="labelDate(entry.date) + (entry.date === currentDate ? ', heute' : '') + ', ' + entry.events.length + (entry.events.length === 1 ? ' Termin' : ' Termine')"
+              @click="day = day === entry.date ? '' : entry.date">
+              <span class="day-number">{{ entry.number }}</span>
+              <span v-for="event in entry.events.slice(0, 2)" :key="event.id" class="month-chip"
+                :class="{ hosted: event.mine, cancelled: event.cancelled }" :title="event.title">{{ event.title }}</span>
+              <small v-if="entry.events.length > 2" class="month-more">+{{ entry.events.length - 2 }}</small>
+            </button>
           </div>
           <h2 class="mt-6 mb-2 text-[17px] font-bold tracking-[-.02em]">{{ day ? labelDate(day) : 'Diesen Monat' }}</h2>
           <button v-for="event in calendarEvents" :key="event.id" class="flex min-h-[62px] w-full items-center gap-[11px] border-b border-line py-2 text-left [&_svg]:size-[15px]" @click="showEvent(event)">

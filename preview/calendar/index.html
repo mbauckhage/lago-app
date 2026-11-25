@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="de-CH"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Lago Nostre · Kalenderentwürfe</title>
+<link rel="stylesheet" href="../../src/calendar.css">
+<style>
+*{box-sizing:border-box}body{margin:0;background:#172f3d;color:#f2f7f3;font:16px -apple-system,BlinkMacSystemFont,"Helvetica Neue",sans-serif}button,select{font:inherit;color:inherit;cursor:pointer}button{background:none;border:0}.tools{background:#152833;padding:12px max(14px,calc((100% - 960px)/2));display:flex;align-items:center;gap:10px;flex-wrap:wrap}.tools select,.tools button,.today,.arrow{border:1px solid #547180;border-radius:8px;background:#233f50;padding:8px}.tools button[aria-pressed=true]{background:#c4e5ee;color:#233f50}.tools label{font-size:13px}.tools select{margin-left:6px}.frame{max-width:960px;margin:18px auto;background:#233f50;container-type:inline-size;min-height:75vh}.mobile{max-width:390px}.mast{padding:18px 5%;font-weight:760;font-size:23px;letter-spacing:-.04em;border-bottom:1px solid #547180;background:linear-gradient(#233f50bd,#233f50e6),url('../../src/assets/lago-header.gif') center 65%/cover}main{padding:20px 4% 32px}h1,h2,h3,p{margin:0}h1{font-size:32px;letter-spacing:-.04em}h2{font-size:20px;letter-spacing:-.025em}h3{font-size:16px;margin:18px 0 8px}.sub,.meta{color:#c7dadd;font-size:13px}.sub{margin:4px 0 22px}.monthbar,.split,.row,.week{display:flex;align-items:center;gap:10px}.monthbar{justify-content:space-between;margin-bottom:12px}.today{border-radius:20px;padding:6px 14px}.row{border-bottom:1px solid #486471;padding:11px 0}.row time{font-size:14px;color:#c4e5ee;width:48px}.row strong{display:block;font-size:15px}.meta{margin-top:3px}.split{align-items:start;gap:24px}.split>*{flex:1;min-width:0}.compact .month-day{min-height:48px}.count{align-self:center;color:#c4e5ee;font-size:11px}.empty{padding:12px 0;color:#c7dadd}.week{justify-content:space-between}.week button{display:grid;justify-items:center;flex:1;padding:8px 0;border-radius:10px}.week [aria-pressed=true]{background:#35596a}.week small{margin-bottom:5px}.band{display:grid;grid-template-columns:125px 1fr;border-top:1px solid #547180;padding:8px 0}.band h3{color:#c4e5ee}.badge{color:#35241f;background:#f29b85;padding:3px 8px;border-radius:15px;font-size:11px}.day-title{font-size:24px}.line{border-left:1px solid #6d8b98;padding-left:16px;margin:16px 0 0 8px}.pager{display:flex;gap:8px;align-items:center}.arrow{padding:5px 10px}.datepick{background:#2d4c5e;color:inherit;border:1px solid #547180;border-radius:6px;padding:6px;color-scheme:dark}
+@container(max-width:540px){.split{display:block}.band{display:block}.band h3{margin:4px 0}.day-title{font-size:19px}.month-chip{padding-inline:2px}}
+</style>
+<nav class="tools" aria-label="Vorschau"><label>Entwurf <select id="option"><option>Monatsraster</option><option>Monat + Tagesagenda</option><option>Wochenstreifen</option><option>Wochenagenda</option><option>Tagesplan</option></select></label><button id="desktop" aria-pressed="true">Desktop</button><button id="mobile" aria-pressed="false">Mobile</button></nav>
+<div class="frame"><header class="mast">Lago Nostre</header><main><h1>Kalender</h1><p class="sub">Alle deine Termine und Einladungen</p><div id="view"></div></main></div>
+<script>
+const events=[
+[1,'11:00','Sonntagsbrunch','Altstadt'],[5,'18:30','Pizzaabend','Bei Nina'],[7,'09:00','Wanderung','Rigi'],[12,'19:00','Spieleabend','Bei Luca'],[15,'11:30','Brunch am See','Seebad'],[18,'18:00','Kino','Capitol'],[21,'09:30','Wochenmarkt','Altstadt'],[24,'18:30','Bouldern','Kletterhalle'],[25,'12:00','Mittag am See','Seepromenade'],[25,'17:30','Apéro','Hafenbar'],[25,'19:00','Fondueabend','Bei Nina'],[27,'20:00','Konzert','Schüür'],[29,'10:00','Adventsbrunch','Bei Luca']];
+const names=['Mo','Di','Mi','Do','Fr','Sa','So'],view=document.querySelector('#view'),option=document.querySelector('#option');
+let day=25,monthSelection=0;
+const weekday=d=>(d+5)%7, weekStart=d=>d-weekday(d);
+const title=d=>new Date(2026,10,d).toLocaleDateString('de-CH',{weekday:'long',day:'numeric',month:'long'});
+const agenda=(items,dates=false)=>items.length?items.map(([d,time,name,place])=>'<div class="row"><time>'+time+'</time><div><strong>'+name+'</strong><div class="meta">'+(dates?d+'. Nov. · ':'')+place+'</div></div></div>').join(''):'<p class="empty">Keine Termine an diesem Tag.</p>';
+const todayTag=d=>d===25?' <span class="badge">Heute</span>':'';
+function grid(compact){
+return '<div class="lago-month '+(compact?'compact':'')+'">'+names.map(x=>'<span class="weekday">'+x+'</span>').join('')+'<span style="grid-column:span 6"></span>'+Array.from({length:30},(_,i)=>{
+const d=i+1,items=events.filter(e=>e[0]===d);
+return '<button class="month-day" data-day="'+d+'" aria-label="'+title(d)+', '+items.length+' Termine" aria-pressed="'+(d===(compact?day:monthSelection))+'" '+(d===25?'aria-current="date"':'')+'><span class="day-number">'+d+'</span>'+(compact?(items.length?'<small class="count">'+items.length+'</small>':''):items.slice(0,2).map(e=>'<span class="month-chip '+(e[1]==='17:30'?'hosted':'')+'">'+e[2]+'</span>').join('')+(items.length>2?'<small class="month-more">+'+(items.length-2)+'</small>':''))+'</button>'
+}).join('')+'</div>'}
+function render(){
+const mode=option.selectedIndex,selected=events.filter(e=>e[0]===day),detail='<h3>'+title(day)+todayTag(day)+'</h3>'+agenda(selected);
+let body='';
+if(mode===0)body=grid(false)+'<h3>'+(monthSelection?title(monthSelection):'Diesen Monat')+'</h3>'+agenda(monthSelection?selected:events,true);
+if(mode===1)body='<div class="split"><div>'+grid(true)+'</div><section>'+detail+'</section></div>';
+if(mode===2){const start=weekStart(day);body='<div class="pager"><button class="arrow" data-day="'+Math.max(1,day-7)+'" aria-label="Vorherige Woche">‹</button><h3>Woche '+(44+Math.floor((day+5)/7))+'</h3><button class="arrow" data-day="'+Math.min(30,day+7)+'" aria-label="Nächste Woche">›</button></div><div class="week">'+names.map((n,i)=>{const d=start+i;return d<1||d>30?'<span></span>':'<button data-day="'+d+'" aria-pressed="'+(d===day)+'" '+(d===25?'aria-current="date"':'')+'><small>'+n+'</small><span class="day-number">'+d+'</span></button>'}).join('')+'</div>'+detail}
+if(mode===3)for(let start=-5;start<=30;start+=7){const items=events.filter(e=>e[0]>=start&&e[0]<start+7);if(items.length)body+='<section class="band"><h3>'+Math.max(start,1)+'.–'+Math.min(start+6,30)+'. Nov.</h3><div>'+[...new Set(items.map(e=>e[0]))].map(d=>'<h3>'+title(d)+todayTag(d)+'</h3>'+agenda(items.filter(e=>e[0]===d))).join('')+'</div></section>'}
+if(mode===4)body='<div class="pager"><button class="arrow" data-day="'+Math.max(day-1,1)+'" aria-label="Vorheriger Tag">‹</button><input class="datepick" aria-label="Tag wählen" type="date" min="2026-11-01" max="2026-11-30" value="2026-11-'+String(day).padStart(2,'0')+'"><button class="arrow" data-day="'+Math.min(day+1,30)+'" aria-label="Nächster Tag">›</button></div><h3 class="day-title">'+title(day)+todayTag(day)+'</h3><div class="line">'+agenda(selected)+'</div>';
+view.innerHTML='<div class="monthbar"><h2>November 2026</h2><button class="today">Heute</button></div>'+body;
+}
+view.onclick=e=>{const b=e.target.closest('button');if(!b)return;if(b.className==='today'){day=monthSelection=25}else{day=Number(b.dataset.day);monthSelection=option.selectedIndex===0&&monthSelection===day?0:day}render();if(option.selectedIndex===3)view.querySelector('.badge').scrollIntoView({block:'center'})};
+view.onchange=e=>{if(e.target.validity.valid&&e.target.value){day=Number(e.target.value.slice(-2));render()}};
+option.onchange=()=>{day=25;monthSelection=0;render()};
+for(const id of ['desktop','mobile'])document.getElementById(id).onclick=()=>{document.querySelector('.frame').classList.toggle('mobile',id==='mobile');for(const size of ['desktop','mobile'])document.getElementById(size).setAttribute('aria-pressed',id===size)};
+render();
+</script></html>

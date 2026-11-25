@@ -11,9 +11,12 @@ function preventZoom(event) {
 const element = ref(null);
 defineExpose({
   get open() { return element.value?.open ?? false; },
-  showModal: () => element.value.showModal(),
+  showModal: () => {
+    element.value.showModal();
+    element.value.focus();
+  },
   close: () => element.value.close(),
-  querySelector: selector => element.value.querySelector(selector)
+  focus: () => element.value.focus()
 });
 </script>
 
