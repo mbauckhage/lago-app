@@ -41,6 +41,13 @@ CREATE TABLE IF NOT EXISTS events (
 ALTER TABLE events ADD COLUMN IF NOT EXISTS ends_at timestamptz CHECK (ends_at > starts_at);
 ALTER TABLE events ADD COLUMN IF NOT EXISTS photo text NOT NULL DEFAULT '';
 
+CREATE TABLE IF NOT EXISTS event_hosts (
+  event_id integer NOT NULL REFERENCES events ON DELETE CASCADE,
+  member_id integer NOT NULL REFERENCES members ON DELETE CASCADE,
+  PRIMARY KEY (event_id, member_id)
+);
+INSERT INTO event_hosts (event_id, member_id) SELECT id, host_id FROM events ON CONFLICT DO NOTHING;
+
 CREATE TABLE IF NOT EXISTS responses (
   event_id integer NOT NULL REFERENCES events ON DELETE CASCADE,
   member_id integer NOT NULL REFERENCES members ON DELETE CASCADE,
@@ -52,6 +59,7 @@ CREATE OR REPLACE VIEW event_guests AS
 SELECT e.id AS event_id, m.id AS member_id
 FROM events e
 JOIN members m ON m.approved AND m.id <> e.host_id
+  AND NOT EXISTS (SELECT 1 FROM event_hosts h WHERE h.event_id=e.id AND h.member_id=m.id)
   AND (m.id = ANY(e.people) OR EXISTS (
     SELECT 1 FROM group_members g WHERE g.member_id = m.id AND g.group_name = ANY(e.groups)
   ));
@@ -93,32 +101,35 @@ BEGIN
   IF TG_TABLE_NAME = 'group_members' THEN
     FOR recipient IN SELECT coalesce(NEW.member_id, OLD.member_id)
       UNION SELECT e.host_id FROM events e WHERE coalesce(NEW.group_name, OLD.group_name)=ANY(e.groups)
+      UNION SELECT eh.member_id FROM event_hosts eh JOIN events e ON e.id=eh.event_id WHERE coalesce(NEW.group_name, OLD.group_name)=ANY(e.groups)
       UNION SELECT g.member_id FROM event_guests g JOIN events e ON e.id=g.event_id
         WHERE coalesce(NEW.group_name, OLD.group_name)=ANY(e.groups) LOOP
       PERFORM pg_notify('lago_changes', recipient::text);
     END LOOP;
   ELSIF TG_TABLE_NAME IN ('responses', 'chat_messages') THEN
     FOR recipient IN SELECT member_id FROM event_guests WHERE event_id=NEW.event_id
-      UNION SELECT host_id FROM events WHERE id=NEW.event_id LOOP
+      UNION SELECT member_id FROM event_hosts WHERE event_id=NEW.event_id LOOP
       PERFORM pg_notify('lago_changes', recipient::text);
     END LOOP;
     IF TG_TABLE_NAME = 'chat_messages' THEN
       INSERT INTO push_jobs(event_id,member_id,kind)
         SELECT NEW.event_id,participants.member_id,'chat' FROM (
-          SELECT host_id AS member_id FROM events WHERE id=NEW.event_id
+          SELECT member_id FROM event_hosts WHERE event_id=NEW.event_id
           UNION SELECT member_id FROM event_guests WHERE event_id=NEW.event_id
         ) participants WHERE participants.member_id<>NEW.sender_id;
       PERFORM pg_notify('lago_changes', 'push');
     END IF;
   ELSE
     FOR recipient IN SELECT member_id FROM event_guests WHERE event_id=NEW.id
+      UNION SELECT member_id FROM event_hosts WHERE event_id=NEW.id
       UNION SELECT NEW.host_id
       UNION SELECT unnest(OLD.people)
       UNION SELECT member_id FROM group_members WHERE group_name=ANY(OLD.groups) LOOP
       PERFORM pg_notify('lago_changes', recipient::text);
     END LOOP;
     IF TG_OP='INSERT' THEN
-      INSERT INTO push_jobs (event_id,member_id,kind) VALUES (NEW.id,NEW.host_id,'created');
+      INSERT INTO push_jobs (event_id,member_id,kind)
+        SELECT NEW.id,member_id,'created' FROM event_hosts WHERE event_id=NEW.id;
     END IF;
     PERFORM pg_notify('lago_changes', 'push');
   END IF;
@@ -127,6 +138,15 @@ END;
 $$;
 DROP TRIGGER IF EXISTS event_change ON events;
 CREATE TRIGGER event_change AFTER INSERT OR UPDATE ON events FOR EACH ROW EXECUTE FUNCTION signal_event_change();
+CREATE OR REPLACE FUNCTION signal_event_host_change() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  PERFORM pg_notify('lago_changes', coalesce(NEW.member_id, OLD.member_id)::text);
+  PERFORM pg_notify('lago_changes', 'push');
+  RETURN NULL;
+END;
+$$;
+DROP TRIGGER IF EXISTS event_host_change ON event_hosts;
+CREATE TRIGGER event_host_change AFTER INSERT OR DELETE ON event_hosts FOR EACH ROW EXECUTE FUNCTION signal_event_host_change();
 DROP TRIGGER IF EXISTS response_change ON responses;
 CREATE TRIGGER response_change AFTER INSERT OR UPDATE ON responses FOR EACH ROW EXECUTE FUNCTION signal_event_change();
 DROP TRIGGER IF EXISTS membership_change ON group_members;

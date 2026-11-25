@@ -232,7 +232,11 @@ app.get('/api/events', async req => {
   const user = await member(req);
   const { rows } = await db.query(`
     SELECT e.*, h.name AS host, h.photo AS host_photo, s.status,
-      (e.host_id=$1) AS mine,
+      EXISTS(SELECT 1 FROM event_hosts eh WHERE eh.event_id=e.id AND eh.member_id=$1) AS mine,
+      ARRAY(SELECT eh.member_id FROM event_hosts eh WHERE eh.event_id=e.id ORDER BY eh.member_id) AS host_ids,
+      COALESCE((SELECT json_agg(json_build_object('id',hm.id,'name',hm.name,'photo',hm.photo)
+        ORDER BY CASE WHEN hm.id=e.host_id THEN 0 ELSE 1 END,hm.name,hm.id)
+        FROM event_hosts eh JOIN members hm ON hm.id=eh.member_id WHERE eh.event_id=e.id), '[]'::json) AS hosts,
       (SELECT count(*)::int FROM chat_messages m WHERE m.event_id=e.id AND m.sender_id<>$1
         AND m.id>coalesce(cr.last_id,0)) AS unread,
       (SELECT json_build_object('id',m.id,'body',left(m.body,120),'sent_at',m.sent_at,'sender',a.name,'sender_id',m.sender_id)
@@ -246,7 +250,8 @@ app.get('/api/events', async req => {
     FROM events e JOIN members h ON h.id=e.host_id
     LEFT JOIN responses s ON s.event_id=e.id AND s.member_id=$1
     LEFT JOIN chat_reads cr ON cr.event_id=e.id AND cr.member_id=$1
-    WHERE e.host_id=$1 OR EXISTS (SELECT 1 FROM event_guests WHERE event_id=e.id AND member_id=$1)
+    WHERE EXISTS (SELECT 1 FROM event_hosts eh WHERE eh.event_id=e.id AND eh.member_id=$1)
+      OR EXISTS (SELECT 1 FROM event_guests WHERE event_id=e.id AND member_id=$1)
     ORDER BY e.id DESC`, [user.id]);
   return rows.map(({ host_id, people, groups, starts_at, ends_at, ...event }) => {
     const start = DateTime.fromJSDate(starts_at, { zone });
@@ -275,34 +280,55 @@ function eventDateTime(date, time) {
   return dateTime;
 }
 
-async function eventFields(body, host, editing = false) {
+async function eventFields(body, host, editing = false, eventId = null) {
   const { title, date, time, endDate, endTime, place, note, photo, people, groups: selected } = body ?? {};
+  let submittedHosts = body?.hosts;
+  if (submittedHosts === undefined) {
+    if (editing && validId(eventId)) {
+      const { rows } = await db.query('SELECT member_id FROM event_hosts WHERE event_id=$1 ORDER BY member_id', [eventId]);
+      submittedHosts = rows.map(row => row.member_id);
+    } else submittedHosts = [host];
+  }
   const dateTime = eventDateTime(date, time);
   const end = endDate === undefined && endTime === undefined ? null : eventDateTime(endDate, endTime);
   if (end && end <= dateTime) throw invalid('Das Ende muss nach dem Start liegen.');
   if (!clean(title) || clean(title).length > 75 || clean(place).length > 80 || clean(note).length > 350) {
     throw invalid('Gib einen Titel ein und beachte die Zeichenlimiten der Felder.');
   }
-  if (!Array.isArray(people) || people.length > 500 || !people.every(id => validId(id) && id !== host) ||
+  if (!Array.isArray(submittedHosts) || !submittedHosts.length || submittedHosts.length > 20 || !submittedHosts.every(id => validId(id)) || new Set(submittedHosts).size !== submittedHosts.length ||
+      (!editing && !submittedHosts.includes(host)) || !Array.isArray(people) || people.length > 500 || !people.every(id => validId(id) && !submittedHosts.includes(id)) ||
       !Array.isArray(selected) || !selected.every(group => groups.includes(group))) throw invalid('Wähle gültige Personen oder Gruppen aus.');
   validatePhoto(photo);
   const invitees = [...new Set(people)];
   if (!editing && !invitees.length && !selected.length) throw invalid('Wähle mindestens eine Person oder Gruppe aus.');
   const result = await db.query('SELECT id FROM members WHERE approved AND id=ANY($1::int[])', [invitees]);
   if (result.rowCount !== invitees.length) throw invalid('Eine eingeladene Person ist nicht verfügbar. Lade die Seite neu und versuch es erneut.');
-  return [clean(title), dateTime.toJSDate(), clean(place), clean(note), invitees, [...new Set(selected)], host, photo ?? null, end?.toJSDate() ?? null];
+  const hostResult = await db.query('SELECT id FROM members WHERE approved AND id=ANY($1::int[])', [submittedHosts]);
+  if (hostResult.rowCount !== submittedHosts.length) throw invalid('Ein Gastgeber ist nicht verfügbar. Lade die Seite neu und versuch es erneut.');
+  return { title: clean(title), startsAt: dateTime.toJSDate(), place: clean(place), note: clean(note), people: invitees,
+    groups: [...new Set(selected)], hostIds: [...new Set(submittedHosts)], photo: photo ?? null, endsAt: end?.toJSDate() ?? null };
 }
 
 const hostGroups = 'ARRAY(SELECT group_name FROM group_members WHERE member_id=$7)';
 
 app.post('/api/events', async (req, reply) => {
   const user = await member(req);
-  const { rows: [event] } = await db.query(
-    `INSERT INTO events (title,starts_at,place,note,people,groups,host_id,photo,ends_at)
-     SELECT $1,$2,$3,$4,$5,$6,$7,coalesce($8,''),$9 WHERE $6::text[] <@ ${hostGroups} RETURNING id`,
-    await eventFields(req.body, user.id)
-  );
-  if (!event) throw invalid('Wähle nur Gruppen, denen du angehörst.');
+  const values = await eventFields(req.body, user.id);
+  const client = await db.connect();
+  let event;
+  try {
+    await client.query('BEGIN');
+    const result = await client.query(`INSERT INTO events (title,starts_at,place,note,people,groups,host_id,photo,ends_at)
+      SELECT $1,$2,$3,$4,$5,$6,$8,coalesce($9,''),$10 WHERE $6::text[] <@ ${hostGroups} RETURNING id`,
+      [values.title, values.startsAt, values.place, values.note, values.people, values.groups, user.id, values.hostIds[0], values.photo, values.endsAt]);
+    event = result.rows[0];
+    if (!event) throw invalid('Wähle nur Gruppen, denen du angehörst.');
+    await client.query('INSERT INTO event_hosts (event_id,member_id) SELECT $1,unnest($2::int[])', [event.id, values.hostIds]);
+    await client.query("DELETE FROM push_jobs WHERE event_id=$1 AND member_id=ANY($2::int[]) AND kind='invitation'", [event.id, values.hostIds]);
+    await client.query("INSERT INTO push_jobs (event_id,member_id,kind) SELECT $1,unnest($2::int[]),'created'", [event.id, values.hostIds]);
+    await client.query('COMMIT');
+  } catch (err) { await client.query('ROLLBACK'); throw err; }
+  finally { client.release(); }
   return reply.code(201).send(event);
 });
 
@@ -310,11 +336,23 @@ app.patch('/api/events/:id', async req => {
   const user = await member(req);
   const id = Number(req.params.id);
   if (!validId(id)) throw missing();
-  const { rowCount } = await db.query(`UPDATE events SET title=$1,starts_at=$2,place=$3,note=$4,people=$5,
-    groups=ARRAY(SELECT unnest($6::text[]) UNION SELECT g FROM unnest(events.groups) g WHERE NOT g=ANY(${hostGroups})),photo=coalesce($8,photo),
-    ends_at=coalesce($9,ends_at), updated_at=clock_timestamp() WHERE host_id=$7 AND id=$10 AND NOT cancelled AND $6::text[] <@ ${hostGroups}
-    AND (cardinality($5::int[]) + cardinality($6::text[]) > 0 OR NOT events.groups <@ ${hostGroups})`, [...await eventFields(req.body, user.id, true), id]);
-  if (!rowCount) throw missing();
+  const values = await eventFields(req.body, user.id, true, id);
+  const client = await db.connect();
+  try {
+    await client.query('BEGIN');
+    const { rowCount } = await client.query(`UPDATE events SET title=$1,starts_at=$2,place=$3,note=$4,people=$5,
+      groups=ARRAY(SELECT unnest($6::text[]) UNION SELECT g FROM unnest(events.groups) g WHERE NOT g=ANY(${hostGroups})),host_id=$8,photo=coalesce($9,photo),
+      ends_at=coalesce($10,ends_at), updated_at=clock_timestamp() WHERE id=$11 AND NOT cancelled
+      AND EXISTS(SELECT 1 FROM event_hosts eh WHERE eh.event_id=events.id AND eh.member_id=$7) AND $6::text[] <@ ${hostGroups}
+      AND (cardinality($5::int[]) + cardinality($6::text[]) > 0 OR NOT events.groups <@ ${hostGroups})`,
+      [values.title, values.startsAt, values.place, values.note, values.people, values.groups, user.id, values.hostIds[0], values.photo, values.endsAt, id]);
+    if (!rowCount) throw missing();
+    await client.query('DELETE FROM event_hosts WHERE event_id=$1', [id]);
+    await client.query('INSERT INTO event_hosts (event_id,member_id) SELECT $1,unnest($2::int[])', [id, values.hostIds]);
+    await client.query("DELETE FROM push_jobs WHERE event_id=$1 AND member_id=ANY($2::int[]) AND kind='invitation'", [id, values.hostIds]);
+    await client.query('COMMIT');
+  } catch (err) { await client.query('ROLLBACK'); throw err; }
+  finally { client.release(); }
   return { saved: true };
 });
 
@@ -323,7 +361,7 @@ app.post('/api/events/:id/cancel', async req => {
   const id = Number(req.params.id);
   if (!validId(id)) throw missing();
   const { rowCount } = await db.query(
-    'UPDATE events SET cancelled=true,updated_at=clock_timestamp() WHERE id=$1 AND host_id=$2 AND NOT cancelled', [id, user.id]
+    'UPDATE events SET cancelled=true,updated_at=clock_timestamp() WHERE id=$1 AND NOT cancelled AND EXISTS(SELECT 1 FROM event_hosts eh WHERE eh.event_id=events.id AND eh.member_id=$2)', [id, user.id]
   );
   if (!rowCount) throw missing();
   return { saved: true };
@@ -368,7 +406,7 @@ app.get('/calendar/:file', async (req, reply) => {
   if (!user) throw error(404, 'Dieser Kalender ist nicht verfügbar.');
   const { rows } = await db.query(`
     SELECT e.* FROM events e
-    WHERE NOT e.cancelled AND (e.host_id=$1 OR EXISTS (
+    WHERE NOT e.cancelled AND (EXISTS (SELECT 1 FROM event_hosts eh WHERE eh.event_id=e.id AND eh.member_id=$1) OR EXISTS (
       SELECT 1 FROM event_guests g JOIN responses r USING (event_id,member_id)
       WHERE g.event_id=e.id AND g.member_id=$1 AND r.status IN ('Going','Maybe')
     )) ORDER BY e.starts_at`, [user.id]);

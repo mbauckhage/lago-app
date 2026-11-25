@@ -114,7 +114,7 @@ async function closeMember() {
 }
 
 const members = ref([]);
-const individualInvitees = computed(() => members.value.filter(person => person.id !== me.value?.id));
+const individualInvitees = computed(() => members.value.filter(person => person.id !== me.value?.id && !draft.value?.hosts?.includes(person.id)));
 const expandedGroup = ref(null);
 const expandedMembers = computed(() => members.value.filter(person => person.groups.includes(expandedGroup.value)));
 const adminMembers = ref([]);
@@ -353,6 +353,9 @@ watch(tab, () => {
   if (content.value) content.value.scrollTop = 0;
   if (me.value?.approved) run(updateFeed);
 });
+watch(() => draft.value?.hosts, hosts => {
+  if (hosts && draft.value) draft.value.people = draft.value.people.filter(id => !hosts.includes(id));
+}, { deep: true });
 
 async function openSheet(name) {
   sheetError.value = '';
@@ -378,8 +381,8 @@ function editEvent(event) {
     await updateInviteGroups();
     members.value = await api('/members');
     expandedGroup.value = null;
-    draft.value = event ? { ...event, people: [...event.people], groups: event.groups.filter(group => inviteGroups.value.includes(group)) } : {
-      title: '', date, time: '18:00', endDate: date, endTime: '19:00', place: '', note: '', photo: '', people: [], groups: []
+    draft.value = event ? { ...event, hosts: [...(event.host_ids ?? [event.host_id])], people: [...event.people], groups: event.groups.filter(group => inviteGroups.value.includes(group)) } : {
+      title: '', date, time: '18:00', endDate: date, endTime: '19:00', place: '', note: '', photo: '', hosts: [me.value.id], people: [], groups: []
     };
     await openSheet('editor');
   }, dialog.value?.open ? sheetError : error);
@@ -393,11 +396,11 @@ function changeStartDate(date) {
 
 function saveEvent(form) {
   const fields = new FormData(form);
-  const { id, title, date, time, endDate, endTime, place, note, people, groups: selected } = draft.value;
+  const { id, title, date, time, endDate, endTime, place, note, people, groups: selected, hosts } = draft.value;
   return run(async () => {
     const photo = await readPhoto(fields.get('photo')) ?? (fields.has('remove_photo') ? '' : undefined);
     await api(id ? '/events/' + id : '/events', id ? 'PATCH' : 'POST', {
-      title, date, time, endDate, endTime, place, note, people, groups: selected, photo
+      title, date, time, endDate, endTime, place, note, people, groups: selected, hosts, photo
     });
     dialog.value.close();
     tab.value = 'Feed';
@@ -624,7 +627,7 @@ function resetCalendar() {
 
       <template v-if="sheet === 'details' && current">
         <img v-if="current.photo" class="block h-[clamp(190px,52vw,305px)] w-full bg-wash object-cover" :src="current.photo" alt="">
-        <p class="text-[13px] leading-[1.4] text-muted">Organisiert von <button type="button" class="min-h-11 underline underline-offset-2" :style="{ color: memberColor(current.host_id) }" @click="showHost(current)">{{ current.host }}</button><span v-if="current.cancelled" class="ml-auto inline-block rounded-lg bg-danger-wash px-2 py-[5px] text-xs font-bold text-danger">Abgesagt</span></p>
+        <p class="flex flex-wrap items-center gap-x-1 text-[13px] leading-[1.4] text-muted">Organisiert von <template v-for="(host, index) in (current.hosts || [{ id: current.host_id, name: current.host }])" :key="host.id"><button type="button" class="min-h-11 underline underline-offset-2" :style="{ color: memberColor(host.id) }" @click="showMember(host)">{{ host.name }}</button><span v-if="index < (current.hosts?.length || 1) - 1">,</span></template><span v-if="current.cancelled" class="ml-auto inline-block rounded-lg bg-danger-wash px-2 py-[5px] text-xs font-bold text-danger">Abgesagt</span></p>
         <div class="flex flex-wrap items-center gap-1.5 text-[13px] leading-[1.4] text-muted [&_svg]:size-[15px]"><Icon name="calendar" /> {{ labelDate(current.date) }} · {{ current.time }}<template v-if="current.endTime"> – {{ current.endDate === current.date ? '' : labelDate(current.endDate) + ' · ' }}{{ current.endTime }}</template></div>
         <div v-if="current.place" class="flex flex-wrap items-center gap-1.5 text-[13px] leading-[1.4] text-muted [&_svg]:size-[15px]"><Icon name="pin" /> {{ current.place }}</div>
         <p v-if="current.note" class="whitespace-pre-wrap wrap-anywhere">{{ current.note }}</p>
@@ -648,6 +651,15 @@ function resetCalendar() {
           <FormField>Enddatum<input v-model="draft.endDate" :min="draft.date" type="date" required></FormField>
           <FormField>Endzeit<input v-model="draft.endTime" type="time" required></FormField>
         </div>
+        <details class="my-2.5">
+          <summary class="flex min-h-11 cursor-pointer items-center justify-between gap-3 text-[13px] font-bold">
+            <span>Gastgeber</span><span class="flex items-center gap-1.5 font-semibold text-muted">{{ draft.hosts.length }} ausgewählt<Icon name="next" class="size-4 rotate-90" /></span>
+          </summary>
+          <div class="-mt-1">
+            <FormField v-for="person in members" :key="person.id" checkbox><input v-model="draft.hosts" type="checkbox" :value="person.id" :disabled="!draft.id && person.id === me.id"> {{ person.name }}<span v-if="person.id === me.id" class="ml-auto text-xs text-muted">Du</span></FormField>
+          </div>
+          <p class="my-1.5 text-[13px] leading-[1.4] text-muted">Alle ausgewählten Gastgeber können den Termin bearbeiten und absagen.</p>
+        </details>
         <FormField>Ort <input v-model="draft.place" maxlength="80" placeholder="Ort hinzufügen"></FormField>
         <FormField>Notizen<textarea v-model="draft.note" maxlength="350" rows="2" placeholder="Was sollen die Gäste wissen?"></textarea></FormField>
         <ImageSelector :key="draft.id ?? 'new'" :photo="draft.photo" />
@@ -675,7 +687,7 @@ function resetCalendar() {
           <legend>Personen einladen</legend>
           <FormField v-for="person in individualInvitees" :key="person.id" checkbox><input v-model="draft.people" type="checkbox" :value="person.id"> {{ person.name }}</FormField>
         </fieldset>
-        <AppButton variant="primary" class="mt-2 w-full" :disabled="busy" type="submit">{{ draft.id ? 'Termin speichern' : 'Termin veröffentlichen' }}</AppButton>
+        <AppButton variant="primary" class="mt-2 w-full" :disabled="busy || !draft.hosts.length" type="submit">{{ draft.id ? 'Termin speichern' : 'Termin veröffentlichen' }}</AppButton>
       </form>
 
       <template v-else-if="sheet === 'cancel'">
