@@ -492,7 +492,7 @@ function resetCalendar() {
     </header>
 
     <main ref="content" class="overflow-auto overscroll-y-contain pt-[19px] pb-7">
-      <div class="mx-auto w-full px-5 max-[360px]:px-3.5" :class="[tab === 'Chat' && chatEvent && !displayedProfile && 'h-full', (displayedProfile || (me?.approved && tab === 'Calendar')) ? 'max-w-[960px]' : 'max-w-[580px]']">
+      <div class="mx-auto w-full px-5 max-[360px]:px-3.5" :class="[(displayedProfile || (tab === 'Chat' && chatEvent)) && 'h-full', (displayedProfile || (me?.approved && tab === 'Calendar')) ? 'max-w-[960px]' : 'max-w-[580px]']">
         <p v-if="error" class="mb-3.5 rounded-xl bg-danger-wash px-4 py-3.5 text-sm leading-[1.45] text-danger" role="alert">{{ error }}</p>
         <p v-if="!ready" class="text-[13px] leading-[1.4] text-muted" role="status">Lago Nostre wird geöffnet…</p>
 

@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="de">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lago · Profil-Tabs</title>
+<style>
+  * { box-sizing: border-box }
+  body { margin: 0; background: #172e3b; color: #f2f7f3; font: 16px -apple-system, BlinkMacSystemFont, sans-serif }
+  header { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 12px; padding: 16px }
+  select, header button { padding: 9px; background: #233f50; color: inherit; border: 1px solid #547180; border-radius: 5px; font: inherit }
+  header button[aria-pressed=true] { background: #c4e5ee; color: #233f50 }
+  iframe { display: block; width: min(100%, 1060px); height: 82vh; margin: auto; border: 0 }
+  iframe.mobile { width: min(100%, 390px) }
+</style>
+<header>
+  <label>Tab-Design <select id="option">
+    <option value="line">Unterstrich · umgesetzt</option><option value="folder">Karteireiter</option>
+    <option value="rail">Seitennavigation</option><option value="split">Geteilte Leiste</option><option value="index">Textregister</option>
+  </select></label>
+  <div><button aria-pressed="true">Desktop</button> <button aria-pressed="false">Mobile</button></div>
+</header>
+<iframe title="Profilvorschau" src="screen.html#line"></iframe>
+<script>
+  const frame = document.querySelector('iframe');
+  document.querySelector('select').onchange = event => frame.src = 'screen.html#' + event.target.value;
+  const sizes = document.querySelectorAll('header button');
+  for (const button of sizes) button.onclick = () => {
+    frame.classList.toggle('mobile', button.textContent === 'Mobile');
+    sizes.forEach(size => size.setAttribute('aria-pressed', size === button));
+  };
+</script>
+</html>
