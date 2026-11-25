@@ -464,7 +464,8 @@ function resetCalendar() {
       class="mt-4 min-h-11 rounded-xl bg-panel px-4 text-[13px] font-medium text-muted hover:bg-control hover:text-ink"
       @click="finishIntro">Überspringen</button>
   </main>
-  <div v-else class="grid h-dvh grid-rows-[auto_minmax(0,1fr)_auto]">
+  <div v-else class="relative grid h-dvh grid-rows-[auto_minmax(0,1fr)_auto]"
+    :class="{ 'feed-scroll-fade': me?.approved && tab === 'Feed' && !displayedProfile }">
     <header class="relative isolate overflow-hidden border-b border-line bg-surface">
       <img :src="headerGif" alt="" width="880" height="328"
         class="pointer-events-none absolute inset-0 -z-10 h-full w-full object-cover object-[center_65%] opacity-30 motion-reduce:hidden">
