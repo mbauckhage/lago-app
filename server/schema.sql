@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS events (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+ALTER TABLE events ADD COLUMN IF NOT EXISTS ends_at timestamptz CHECK (ends_at > starts_at);
 ALTER TABLE events ADD COLUMN IF NOT EXISTS photo text NOT NULL DEFAULT '';
 
 CREATE TABLE IF NOT EXISTS responses (

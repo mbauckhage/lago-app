@@ -97,6 +97,9 @@ async function closeMember() {
 }
 
 const members = ref([]);
+const individualInvitees = computed(() => members.value.filter(person => person.id !== me.value?.id));
+const expandedGroup = ref(null);
+const expandedMembers = computed(() => members.value.filter(person => person.groups.includes(expandedGroup.value)));
 const adminMembers = ref([]);
 const busy = ref(false);
 const error = ref('');
@@ -312,21 +315,28 @@ function showEvent(event) {
 function editEvent(event) {
   return run(async () => {
     await updateInviteGroups();
-    members.value = (await api('/members')).filter(member => member.id !== me.value.id);
+    members.value = await api('/members');
+    expandedGroup.value = null;
     draft.value = event ? { ...event, people: [...event.people], groups: event.groups.filter(group => inviteGroups.value.includes(group)) } : {
-      title: '', date: today().toISODate(), time: '18:00', place: '', note: '', photo: '', people: [], groups: []
+      title: '', date: today().toISODate(), time: '18:00', endDate: today().toISODate(), endTime: '19:00', place: '', note: '', photo: '', people: [], groups: []
     };
     await openSheet('editor');
   }, dialog.value?.open ? sheetError : error);
 }
 
+function changeStartDate(date) {
+  const event = draft.value;
+  if (!event.endDate || event.endDate === event.date || event.endDate < date) event.endDate = date;
+  event.date = date;
+}
+
 function saveEvent(form) {
   const fields = new FormData(form);
-  const { id, title, date, time, place, note, people, groups: selected } = draft.value;
+  const { id, title, date, time, endDate, endTime, place, note, people, groups: selected } = draft.value;
   return run(async () => {
     const photo = await readPhoto(fields.get('photo')) ?? (fields.has('remove_photo') ? '' : undefined);
     await api(id ? '/events/' + id : '/events', id ? 'PATCH' : 'POST', {
-      title, date, time, place, note, people, groups: selected, photo
+      title, date, time, endDate, endTime, place, note, people, groups: selected, photo
     });
     dialog.value.close();
     tab.value = 'Feed';
@@ -533,7 +543,7 @@ function resetCalendar() {
       </div>
     </nav>
 
-    <AppSheet ref="dialog">
+    <AppSheet ref="dialog" :vertical-scroll-only="sheet === 'editor'">
       <template #title>{{ sheet === 'details' ? current?.title : sheet === 'editor' ? (draft?.id ? 'Termin bearbeiten' : 'Neuer Termin')
           : sheet === 'admin' ? 'Mitglieder verwalten' : sheet === 'reset-calendar' ? 'Kalenderlink zurücksetzen?' : 'Diesen Termin absagen?' }}</template>
       <p v-if="sheetError" class="mb-3.5 rounded-xl bg-danger-wash px-4 py-3.5 text-sm leading-[1.45] text-danger" role="alert">{{ sheetError }}</p>
@@ -541,7 +551,7 @@ function resetCalendar() {
       <template v-if="sheet === 'details' && current">
         <img v-if="current.photo" class="block h-[clamp(190px,52vw,305px)] w-full bg-wash object-cover" :src="current.photo" alt="">
         <p class="text-[13px] leading-[1.4] text-muted">Organisiert von <button type="button" class="min-h-11 underline underline-offset-2" @click="showHost(current)">{{ current.host }}</button><span v-if="current.cancelled" class="ml-auto inline-block rounded-lg bg-danger-wash px-2 py-[5px] text-xs font-bold text-danger">Abgesagt</span></p>
-        <div class="flex flex-wrap items-center gap-1.5 text-[13px] leading-[1.4] text-muted [&_svg]:size-[15px]"><Icon name="calendar" /> {{ labelDate(current.date) }} · {{ current.time }} Schweizer Zeit</div>
+        <div class="flex flex-wrap items-center gap-1.5 text-[13px] leading-[1.4] text-muted [&_svg]:size-[15px]"><Icon name="calendar" /> {{ labelDate(current.date) }} · {{ current.time }}<template v-if="current.endTime"> – {{ current.endDate === current.date ? '' : labelDate(current.endDate) + ' · ' }}{{ current.endTime }}</template></div>
         <div v-if="current.place" class="flex flex-wrap items-center gap-1.5 text-[13px] leading-[1.4] text-muted [&_svg]:size-[15px]"><Icon name="pin" /> {{ current.place }}</div>
         <p v-if="current.note" class="whitespace-pre-wrap wrap-anywhere">{{ current.note }}</p>
         <h3 class="mt-6 mb-2 text-[17px] font-bold tracking-[-.02em]">Gäste</h3>
@@ -558,9 +568,11 @@ function resetCalendar() {
 
       <form v-else-if="sheet === 'editor' && draft" @submit.prevent="saveEvent($event.currentTarget)">
         <FormField>Titel des Termins<input v-model="draft.title" maxlength="75" required placeholder="Abendessen am Samstag"></FormField>
-        <div class="grid grid-cols-2 gap-[9px]">
-          <FormField>Datum<input v-model="draft.date" type="date" required></FormField>
-          <FormField>Uhrzeit in der Schweiz<input v-model="draft.time" type="time" required></FormField>
+        <div class="my-3 grid grid-cols-2 gap-x-3 gap-y-3 [&>label]:m-0 [&>label]:min-w-0 [&_input]:appearance-none">
+          <FormField>Startdatum<input :value="draft.date" type="date" required @input="changeStartDate($event.target.value)"></FormField>
+          <FormField>Startzeit<input v-model="draft.time" type="time" required></FormField>
+          <FormField>Enddatum<input v-model="draft.endDate" :min="draft.date" type="date" required></FormField>
+          <FormField>Endzeit<input v-model="draft.endTime" type="time" required></FormField>
         </div>
         <FormField>Ort <input v-model="draft.place" maxlength="80" placeholder="Ort hinzufügen"></FormField>
         <FormField>Notizen<textarea v-model="draft.note" maxlength="350" rows="2" placeholder="Was sollen die Gäste wissen?"></textarea></FormField>
@@ -568,11 +580,26 @@ function resetCalendar() {
         <FormField v-if="draft.photo" checkbox><input name="remove_photo" type="checkbox"> Titelbild entfernen</FormField>
         <fieldset v-if="inviteGroups.length">
           <legend>Gruppen einladen</legend>
-          <FormField v-for="group in inviteGroups" :key="group" checkbox><input v-model="draft.groups" type="checkbox" :value="group"> {{ group }}</FormField>
+          <div v-for="(group, index) in inviteGroups" :key="group">
+            <div class="flex items-center">
+              <FormField checkbox class="flex-1"><input v-model="draft.groups" type="checkbox" :value="group"> {{ group }}</FormField>
+              <AppButton variant="plain" class="w-11" :aria-label="`Mitglieder von ${group}`"
+                :aria-expanded="expandedGroup === group" :aria-controls="`group-roster-${index}`"
+                @click="expandedGroup = expandedGroup === group ? null : group">
+                <Icon name="next" :class="{ 'rotate-90': expandedGroup === group }" />
+              </AppButton>
+            </div>
+            <ul v-show="expandedGroup === group" :id="`group-roster-${index}`" :aria-label="`Mitglieder von ${group}`"
+              class="space-y-1 pb-2 pl-7 text-[13px] text-muted">
+              <template v-if="expandedGroup === group">
+                <li v-for="person in expandedMembers" :key="person.id">{{ person.name }}</li>
+              </template>
+            </ul>
+          </div>
         </fieldset>
-        <fieldset v-if="members.length">
+        <fieldset v-if="individualInvitees.length">
           <legend>Personen einladen</legend>
-          <FormField v-for="person in members" :key="person.id" checkbox><input v-model="draft.people" type="checkbox" :value="person.id"> {{ person.name }}</FormField>
+          <FormField v-for="person in individualInvitees" :key="person.id" checkbox><input v-model="draft.people" type="checkbox" :value="person.id"> {{ person.name }}</FormField>
         </fieldset>
         <AppButton variant="primary" class="mt-2 w-full" :disabled="busy" type="submit">{{ draft.id ? 'Termin speichern' : 'Termin veröffentlichen' }}</AppButton>
       </form>

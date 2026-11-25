@@ -179,8 +179,12 @@ app.post('/api/me/calendar', async req => {
 });
 
 app.get('/api/members', async req => {
-  await member(req);
-  const { rows } = await db.query('SELECT id,name FROM members WHERE approved ORDER BY name,id');
+  const user = await member(req);
+  const { rows } = await db.query(`SELECT m.id,m.name,
+    ARRAY(SELECT gm.group_name FROM group_members gm
+      JOIN group_members own ON own.group_name=gm.group_name AND own.member_id=$1
+      WHERE gm.member_id=m.id ORDER BY gm.group_name) AS groups
+    FROM members m WHERE m.approved ORDER BY m.name,m.id`, [user.id]);
   return rows;
 });
 
@@ -230,10 +234,12 @@ app.get('/api/events', async req => {
     LEFT JOIN responses s ON s.event_id=e.id AND s.member_id=$1
     WHERE e.host_id=$1 OR EXISTS (SELECT 1 FROM event_guests WHERE event_id=e.id AND member_id=$1)
     ORDER BY e.id DESC`, [user.id]);
-  return rows.map(({ host_id, people, groups, starts_at, ...event }) => {
+  return rows.map(({ host_id, people, groups, starts_at, ends_at, ...event }) => {
     const start = DateTime.fromJSDate(starts_at, { zone });
+    const end = ends_at && DateTime.fromJSDate(ends_at, { zone });
     return {
       ...event, host_id, date: start.toISODate(), time: start.toFormat('HH:mm'),
+      endDate: end?.toISODate(), endTime: end?.toFormat('HH:mm'),
       ...(event.mine ? { people, groups } : {})
     };
   });
@@ -246,13 +252,20 @@ function validatePhoto(photo) {
   }
 }
 
-async function eventFields(body, host, editing = false) {
-  const { title, date, time, place, note, photo, people, groups: selected } = body ?? {};
+function eventDateTime(date, time) {
   const dateTime = typeof date === 'string' && typeof time === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(date + 'T' + time)
     ? DateTime.fromISO(date + 'T' + time, { zone }) : null;
   if (!dateTime?.isValid || dateTime.toISODate() !== date || dateTime.toFormat('HH:mm') !== time) {
-    throw invalid('Gib ein gültiges Datum und eine gültige Uhrzeit für die Schweiz ein.');
+    throw invalid('Gib ein gültiges Datum und eine gültige Uhrzeit ein.');
   }
+  return dateTime;
+}
+
+async function eventFields(body, host, editing = false) {
+  const { title, date, time, endDate, endTime, place, note, photo, people, groups: selected } = body ?? {};
+  const dateTime = eventDateTime(date, time);
+  const end = endDate === undefined && endTime === undefined ? null : eventDateTime(endDate, endTime);
+  if (end && end <= dateTime) throw invalid('Das Ende muss nach dem Start liegen.');
   if (!clean(title) || clean(title).length > 75 || clean(place).length > 80 || clean(note).length > 350) {
     throw invalid('Gib einen Titel ein und beachte die Zeichenlimiten der Felder.');
   }
@@ -263,7 +276,7 @@ async function eventFields(body, host, editing = false) {
   if (!editing && !invitees.length && !selected.length) throw invalid('Wähle mindestens eine Person oder Gruppe aus.');
   const result = await db.query('SELECT id FROM members WHERE approved AND id=ANY($1::int[])', [invitees]);
   if (result.rowCount !== invitees.length) throw invalid('Eine eingeladene Person ist nicht verfügbar. Lade die Seite neu und versuch es erneut.');
-  return [clean(title), dateTime.toJSDate(), clean(place), clean(note), invitees, [...new Set(selected)], host, photo ?? null];
+  return [clean(title), dateTime.toJSDate(), clean(place), clean(note), invitees, [...new Set(selected)], host, photo ?? null, end?.toJSDate() ?? null];
 }
 
 const hostGroups = 'ARRAY(SELECT group_name FROM group_members WHERE member_id=$7)';
@@ -271,8 +284,8 @@ const hostGroups = 'ARRAY(SELECT group_name FROM group_members WHERE member_id=$
 app.post('/api/events', async (req, reply) => {
   const user = await member(req);
   const { rows: [event] } = await db.query(
-    `INSERT INTO events (title,starts_at,place,note,people,groups,host_id,photo)
-     SELECT $1,$2,$3,$4,$5,$6,$7,coalesce($8,'') WHERE $6::text[] <@ ${hostGroups} RETURNING id`,
+    `INSERT INTO events (title,starts_at,place,note,people,groups,host_id,photo,ends_at)
+     SELECT $1,$2,$3,$4,$5,$6,$7,coalesce($8,''),$9 WHERE $6::text[] <@ ${hostGroups} RETURNING id`,
     await eventFields(req.body, user.id)
   );
   if (!event) throw invalid('Wähle nur Gruppen, denen du angehörst.');
@@ -285,7 +298,7 @@ app.patch('/api/events/:id', async req => {
   if (!validId(id)) throw missing();
   const { rowCount } = await db.query(`UPDATE events SET title=$1,starts_at=$2,place=$3,note=$4,people=$5,
     groups=ARRAY(SELECT unnest($6::text[]) UNION SELECT g FROM unnest(events.groups) g WHERE NOT g=ANY(${hostGroups})),photo=coalesce($8,photo),
-    updated_at=clock_timestamp() WHERE host_id=$7 AND id=$9 AND NOT cancelled AND $6::text[] <@ ${hostGroups}
+    ends_at=coalesce($9,ends_at), updated_at=clock_timestamp() WHERE host_id=$7 AND id=$10 AND NOT cancelled AND $6::text[] <@ ${hostGroups}
     AND (cardinality($5::int[]) + cardinality($6::text[]) > 0 OR NOT events.groups <@ ${hostGroups})`, [...await eventFields(req.body, user.id, true), id]);
   if (!rowCount) throw missing();
   return { saved: true };
@@ -347,7 +360,8 @@ app.get('/calendar/:file', async (req, reply) => {
     )) ORDER BY e.starts_at`, [user.id]);
   const entries = rows.flatMap(e => [
     'BEGIN:VEVENT', `UID:${e.id}@lago`, 'DTSTAMP:' + calendarDate(e.updated_at),
-    'DTSTART:' + calendarDate(e.starts_at), 'SUMMARY:' + calendarText(e.title),
+    'DTSTART:' + calendarDate(e.starts_at),
+    ...(e.ends_at ? ['DTEND:' + calendarDate(e.ends_at)] : []), 'SUMMARY:' + calendarText(e.title),
     'LOCATION:' + calendarText(e.place), 'DESCRIPTION:' + calendarText(e.note), 'END:VEVENT'
   ]);
   return reply.type('text/calendar; charset=utf-8').send([

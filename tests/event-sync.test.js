@@ -47,21 +47,28 @@ test('live invitations, group permissions and access removal across sessions', {
     };
     const [host, guest, both] = await Promise.all([0, 1, 2].map(follow));
     assert.deepEqual(await (await api(0, '/me/groups')).json(), ['Lago Nostre']);
-    const event = { title: 'Dinner', date: '2027-01-01', time: '18:00', people: [3], groups: ['Lago Nostre'] };
+    const event = { title: 'Dinner', date: '2027-01-01', time: '18:00', endDate: '2027-01-02', endTime: '00:30', people: [3], groups: ['Lago Nostre'] };
     assert.equal((await api(0, '/events', 'POST', { ...event, groups: ['Lago Plus'] })).status, 400);
+    assert.equal((await api(0, '/events', 'POST', { ...event, endDate: event.date })).status, 400);
     assert.equal((await api(0, '/events', 'POST', event)).status, 201);
     await Promise.all([host(), guest(), both()]);
     for (const index of [0, 1, 2, 3]) {
       const rows = await (await api(index, '/events')).json();
+      if (rows.length) {
+        assert.equal(rows[0].endDate, event.endDate);
+        assert.equal(rows[0].endTime, event.endTime);
+      }
       assert.deepEqual(rows.map(row => row.title), index === 3 ? [] : ['Dinner']);
     }
     assert.equal((await api(1, '/events/1/rsvp', 'PUT', { status: 'Going' })).status, 200);
     await Promise.all([host(), guest(), both()]);
     await db.query("DELETE FROM group_members WHERE member_id=1");
     await Promise.all([host(), guest(), both()]);
-    assert.equal((await api(0, '/events/1', 'PATCH', { ...event, groups: [], people: [] })).status, 200);
+    assert.equal((await api(0, '/events/1', 'PATCH', { ...event, endTime: '01:00', groups: [], people: [] })).status, 200);
     await Promise.all([host(), guest(), both()]);
-    assert.deepEqual((await (await api(0, '/events')).json())[0].groups, ['Lago Nostre']);
+    const [edited] = await (await api(0, '/events')).json();
+    assert.deepEqual(edited.groups, ['Lago Nostre']);
+    assert.equal(edited.endTime, '01:00');
     await db.query("DELETE FROM group_members WHERE member_id=2");
     await Promise.all([host(), guest(), both()]);
     assert.deepEqual(await (await api(1, '/events')).json(), []);
