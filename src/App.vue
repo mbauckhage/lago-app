@@ -153,7 +153,16 @@ function selectToday() {
 const calendarUrl = computed(() => me.value?.calendar_token
   ? new URL('/calendar/' + me.value.calendar_token + '.ics', location.origin).href : '');
 const current = computed(() => events.value.find(event => event.id === eventId.value));
-const monthEvents = computed(() => events.value.filter(event => event.date.startsWith(month.value.toFormat('yyyy-MM')))
+const birthdayEvents = computed(() => members.value.flatMap(person => {
+  if (!person.birthday) return [];
+  const birthday = String(person.birthday).slice(0, 10);
+  const monthDay = birthday.slice(5);
+  if (!/^\d{2}-\d{2}$/.test(monthDay) || monthDay.slice(0, 2) !== month.value.toFormat('MM')) return [];
+  let date = `${month.value.toFormat('yyyy')}-${monthDay}`;
+  if (monthDay === '02-29' && !month.value.isInLeapYear) date = `${month.value.toFormat('yyyy')}-02-28`;
+  return [{ id: `birthday-${person.id}`, title: `Geburtstag · ${person.name}`, date, time: '00:00', birthday: true, member: person }];
+}));
+const monthEvents = computed(() => [...events.value.filter(event => event.date.startsWith(month.value.toFormat('yyyy-MM'))), ...birthdayEvents.value]
   .sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time)));
 const visibleDays = computed(() => Array.from({ length: month.value.daysInMonth }, (_, i) => {
   const date = month.value.set({ day: i + 1 }).toISODate();
@@ -344,7 +353,13 @@ async function promptCalendarSubscription() {
 }
 
 watch(tab, () => {
-  if (tab.value === 'Calendar') void promptCalendarSubscription();
+  if (tab.value === 'Calendar') {
+    void promptCalendarSubscription();
+    const account = me.value?.id;
+    void api('/members').then(rows => {
+      if (me.value?.id === account) members.value = rows;
+    }).catch(problem => { error.value = problem.message; });
+  }
   memberProfile.value = null;
   settingsOpen.value = false;
   profileTab.value = 'own';
@@ -556,7 +571,7 @@ function resetCalendar() {
             <span v-for="index in month.weekday - 1" :key="'blank' + index" aria-hidden="true"></span>
             <button v-for="entry in visibleDays" :key="entry.date" class="month-day" :aria-pressed="day === entry.date"
               :aria-current="entry.date === currentDate ? 'date' : undefined"
-              :aria-label="labelDate(entry.date) + (entry.date === currentDate ? ', heute' : '') + ', ' + entry.events.length + (entry.events.length === 1 ? ' Termin' : ' Termine')"
+              :aria-label="labelDate(entry.date) + (entry.date === currentDate ? ', heute' : '') + ', ' + entry.events.length + (entry.events.length === 1 ? ' Eintrag' : ' Einträge')"
               @click="day = day === entry.date ? '' : entry.date">
               <span class="day-number">{{ entry.number }}</span>
               <span v-for="event in entry.events.slice(0, 2)" :key="event.id" class="month-chip"
@@ -565,10 +580,12 @@ function resetCalendar() {
             </button>
           </div>
           <h2 class="mt-6 mb-2 text-[17px] font-bold tracking-[-.02em]">{{ day ? labelDate(day) : 'Diesen Monat' }}</h2>
-          <button v-for="event in calendarEvents" :key="event.id" class="flex min-h-[62px] w-full items-center gap-[11px] border-b border-line py-2 text-left [&_svg]:size-[15px]" @click="openChat(event)">
-            <img v-if="event.photo" class="size-12 rounded-[10px] bg-wash object-cover" :src="event.photo" alt="">
-            <span class="min-w-0 flex-1 [&_strong]:block [&_strong]:wrap-anywhere [&_small]:mt-1 [&_small]:block [&_small]:text-xs [&_small]:text-muted [&_small]:wrap-anywhere"><strong>{{ event.title }}</strong><small>{{ labelDate(event.date) }} · {{ event.time }} · {{ event.cancelled ? 'Abgesagt' : event.mine ? 'Von dir organisiert' : responseLabel(event.status) }}</small></span>
-            <UnreadBadge :count="event.unread" /><Icon name="next" />
+          <button v-for="event in calendarEvents" :key="event.id" class="flex min-h-[62px] w-full items-center gap-[11px] border-b border-line py-2 text-left [&_svg]:size-[15px]" @click="event.birthday ? showMember(event.member) : openChat(event)">
+            <AppAvatar v-if="event.birthday" :name="event.member.name" :photo="event.member.photo" />
+            <img v-else-if="event.photo" class="size-12 rounded-[10px] bg-wash object-cover" :src="event.photo" alt="">
+            <span v-else class="grid size-12 shrink-0 place-content-center rounded-xl bg-panel text-center leading-tight"><strong>{{ event.date.slice(8) }}</strong><small>{{ labelDate(event.date, { month: 'short' }) }}</small></span>
+            <span class="min-w-0 flex-1 [&_strong]:block [&_strong]:wrap-anywhere [&_small]:mt-1 [&_small]:block [&_small]:text-xs [&_small]:text-muted [&_small]:wrap-anywhere"><strong>{{ event.title }}</strong><small>{{ labelDate(event.date) }} · {{ event.birthday ? 'Mitgliederprofil öffnen' : `${event.time} · ${event.cancelled ? 'Abgesagt' : event.mine ? 'Von dir organisiert' : responseLabel(event.status)}` }}</small></span>
+            <template v-if="!event.birthday"><UnreadBadge :count="event.unread" /></template><Icon name="next" />
           </button>
           <p v-if="!calendarEvents.length" class="text-[13px] leading-[1.4] text-muted">{{ day ? 'Keine Termine an diesem Tag.' : 'Keine Termine in diesem Monat.' }}</p>
         </template>

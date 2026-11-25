@@ -188,7 +188,7 @@ app.post('/api/me/calendar', async req => {
 
 app.get('/api/members', async req => {
   const user = await member(req);
-  const { rows } = await db.query(`SELECT m.id,m.name,
+  const { rows } = await db.query(`SELECT m.id,m.name,m.birthday::text AS birthday,
     ARRAY(SELECT gm.group_name FROM group_members gm
       JOIN group_members own ON own.group_name=gm.group_name AND own.member_id=$1
       WHERE gm.member_id=m.id ORDER BY gm.group_name) AS groups
