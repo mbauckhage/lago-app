@@ -645,22 +645,21 @@ function resetCalendar() {
 
       <form v-else-if="sheet === 'editor' && draft" @submit.prevent="saveEvent($event.currentTarget)">
         <FormField>Titel des Termins<input v-model="draft.title" maxlength="75" required placeholder="Abendessen am Samstag"></FormField>
-        <fieldset>
-          <legend>Gastgeber</legend>
-          <details class="rounded-xl border border-line bg-panel px-3.5 py-2.5">
-            <summary class="min-h-8 cursor-pointer font-semibold">{{ draft.hosts.length }} ausgewählt</summary>
-            <div class="mt-2 border-t border-line pt-1.5">
-              <FormField v-for="person in members" :key="person.id" checkbox><input v-model="draft.hosts" type="checkbox" :value="person.id" :disabled="!draft.id && person.id === me.id"> {{ person.name }}<span v-if="person.id === me.id" class="ml-auto text-xs text-muted">Du</span></FormField>
-            </div>
-          </details>
-          <p class="mt-1.5 text-[13px] leading-[1.4] text-muted">Alle ausgewählten Gastgeber können den Termin bearbeiten und absagen.</p>
-        </fieldset>
         <div class="my-3 grid grid-cols-2 gap-x-3 gap-y-3 [&>label]:m-0 [&>label]:min-w-0 [&_input]:appearance-none">
           <FormField>Startdatum<input :value="draft.date" type="date" required @input="changeStartDate($event.target.value)"></FormField>
           <FormField>Startzeit<input v-model="draft.time" type="time" required></FormField>
           <FormField>Enddatum<input v-model="draft.endDate" :min="draft.date" type="date" required></FormField>
           <FormField>Endzeit<input v-model="draft.endTime" type="time" required></FormField>
         </div>
+        <details class="my-2.5">
+          <summary class="flex min-h-11 cursor-pointer items-center justify-between gap-3 text-[13px] font-bold">
+            <span>Gastgeber</span><span class="font-semibold text-muted">{{ draft.hosts.length }} ausgewählt</span>
+          </summary>
+          <div class="-mt-1">
+            <FormField v-for="person in members" :key="person.id" checkbox><input v-model="draft.hosts" type="checkbox" :value="person.id" :disabled="!draft.id && person.id === me.id"> {{ person.name }}<span v-if="person.id === me.id" class="ml-auto text-xs text-muted">Du</span></FormField>
+          </div>
+          <p class="my-1.5 text-[13px] leading-[1.4] text-muted">Alle ausgewählten Gastgeber können den Termin bearbeiten und absagen.</p>
+        </details>
         <FormField>Ort <input v-model="draft.place" maxlength="80" placeholder="Ort hinzufügen"></FormField>
         <FormField>Notizen<textarea v-model="draft.note" maxlength="350" rows="2" placeholder="Was sollen die Gäste wissen?"></textarea></FormField>
         <ImageSelector :key="draft.id ?? 'new'" :photo="draft.photo" />
