@@ -653,7 +653,7 @@ function resetCalendar() {
         </div>
         <details class="my-2.5">
           <summary class="flex min-h-11 cursor-pointer items-center justify-between gap-3 text-[13px] font-bold">
-            <span>Gastgeber</span><span class="font-semibold text-muted">{{ draft.hosts.length }} ausgewählt</span>
+            <span>Gastgeber</span><span class="flex items-center gap-1.5 font-semibold text-muted">{{ draft.hosts.length }} ausgewählt<Icon name="next" class="size-4 rotate-90" /></span>
           </summary>
           <div class="-mt-1">
             <FormField v-for="person in members" :key="person.id" checkbox><input v-model="draft.hosts" type="checkbox" :value="person.id" :disabled="!draft.id && person.id === me.id"> {{ person.name }}<span v-if="person.id === me.id" class="ml-auto text-xs text-muted">Du</span></FormField>
